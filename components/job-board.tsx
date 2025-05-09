@@ -1,38 +1,31 @@
 "use client"
 
-import { useState, useEffect, useMemo, useRef } from "react"
-import { JobColumn } from "./job-column"
+import { useState, useEffect, useMemo, useRef, useCallback } from "react"
+import { DraggableColumn } from "./draggable-column"
 import { JobCard } from "./job-card"
 import { DndProvider } from "react-dnd"
 import { HTML5Backend } from "react-dnd-html5-backend"
 import type { JobData, ColumnType, JobFilter, SortOption, GroupOption, JobState } from "@/lib/types"
-import { AddJobModal } from "./add-job-modal"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import {
-  Download,
   FileUp,
-  Filter,
-  SortAsc,
-  SortDesc,
   Table,
   Columns,
-  Search,
   X,
   Settings,
   Plus,
   MoreHorizontal,
   ListOrderedIcon as ListReorder,
+  Loader2,
+  ArrowLeft,
+  ArrowRight,
+  FileJson,
 } from "lucide-react"
 import { getJobs, saveJobs, getJobStates, saveJobStates } from "@/lib/storage"
 import { useToast } from "@/hooks/use-toast"
 import { useLanguage } from "@/lib/i18n"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
 import { JobTable } from "./job-table"
 import Link from "next/link"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
@@ -45,7 +38,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { StatusManagerModal } from "./status-manager-modal"
+import { EnhancedStatusModal } from "./enhanced-status-modal"
+import { AdvancedJobExtractor } from "./advanced-job-extractor"
+import { DashboardHeader } from "./dashboard-header"
+import { EnhancedJobModal } from "./enhanced-job-modal"
 
 export function JobBoard() {
   const [jobs, setJobs] = useState<JobData[]>([])
@@ -59,11 +55,17 @@ export function JobBoard() {
   const [isLoading, setIsLoading] = useState(true)
   const [isAddStatusModalOpen, setIsAddStatusModalOpen] = useState(false)
   const [isStatusManagerOpen, setIsStatusManagerOpen] = useState(false)
+  const [isAddJobModalOpen, setIsAddJobModalOpen] = useState(false)
+  const [isExtractionModalOpen, setIsExtractionModalOpen] = useState(false)
+  const [isSearchExpanded, setIsSearchExpanded] = useState(false)
+  const [editingJob, setEditingJob] = useState<JobData | null>(null)
+  const [isEditJobModalOpen, setIsEditJobModalOpen] = useState(false)
   const { toast } = useToast()
   const { t } = useLanguage()
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isMobile = useMediaQuery("(max-width: 768px)")
   const isSmallScreen = useMediaQuery("(max-width: 1024px)")
+  const isExtraSmallScreen = useMediaQuery("(max-width: 640px)")
 
   useEffect(() => {
     // Load jobs from localStorage
@@ -120,10 +122,10 @@ export function JobBoard() {
     // Apply date range filter
     if (filter.dateRange) {
       if (filter.dateRange.start) {
-        result = result.filter((job) => job.date && job.date >= filter.dateRange.start!)
+        result = result.filter((job) => job.date && job.date >= filter.dateRange?.start!)
       }
       if (filter.dateRange.end) {
-        result = result.filter((job) => job.date && job.date <= filter.dateRange.end!)
+        result = result.filter((job) => job.date && job.date <= filter.dateRange?.end!)
       }
     }
 
@@ -209,7 +211,7 @@ export function JobBoard() {
     setActiveFilters(filters)
   }, [filter])
 
-  const moveJob = (jobId: string, targetColumn: ColumnType) => {
+  const moveJob = useCallback((jobId: string, targetColumn: ColumnType) => {
     const updatedJobs = jobs.map((job) => (job.id === jobId ? { ...job, status: targetColumn } : job))
     setJobs(updatedJobs)
     saveJobs(updatedJobs)
@@ -218,7 +220,7 @@ export function JobBoard() {
       title: t("jobUpdated"),
       description: `${t("jobMovedTo")} ${targetColumn}`,
     })
-  }
+  }, [jobs, toast, t])
 
   const addJob = (job: JobData) => {
     const updatedJobs = [...jobs, job]
@@ -254,115 +256,151 @@ export function JobBoard() {
   }
 
   const exportJobs = (format: "json" | "csv") => {
-    let dataStr, fileName
+    try {
+      let content: string
+      let filename: string
+      let mimeType: string
 
-    if (format === "json") {
-      dataStr = JSON.stringify(jobs, null, 2)
-      fileName = `job-applications-${new Date().toISOString().split("T")[0]}.json`
-    } else {
-      // Create CSV header with all possible fields
-      let csv =
-        "ID,Company,Position,Location,Salary,Date,Status,Notes,URL,Priority,Tags,Description,WorkMode,SalaryMin,SalaryMax,SalaryCurrency,ApplyDate,FollowUpDate,Excitement,ContactPerson,ContactEmail\n"
+      if (format === "json") {
+        content = JSON.stringify(jobs, null, 2)
+        filename = `job-tracker-export-${new Date().toISOString().split("T")[0]}.json`
+        mimeType = "application/json"
+      } else {
+        // Create CSV content with headers
+        const headers = [
+          "id",
+          "company",
+          "position",
+          "location",
+          "salary",
+          "date",
+          "status",
+          "notes",
+          "url",
+          "priority",
+          "tags",
+          "description",
+          "workMode",
+        ].join(",")
 
-      // Add each job as a row
-      jobs.forEach((job) => {
-        const row = [
-          job.id,
-          `"${job.company?.replace(/"/g, '""') || ""}"`,
-          `"${job.position?.replace(/"/g, '""') || ""}"`,
-          job.location ? `"${job.location.replace(/"/g, '""')}"` : "",
-          job.salary ? `"${job.salary.replace(/"/g, '""')}"` : "",
-          job.date || "",
-          job.status,
-          job.notes ? `"${job.notes.replace(/"/g, '""')}"` : "",
-          job.url ? `"${job.url.replace(/"/g, '""')}"` : "",
-          job.priority || "",
-          job.tags ? `"${job.tags.join(",").replace(/"/g, '""')}"` : "",
-          job.description ? `"${job.description.replace(/"/g, '""')}"` : "",
-          job.workMode || "",
-          job.salaryMin || "",
-          job.salaryMax || "",
-          job.salaryCurrency || "",
-          job.applyDate || "",
-          job.followUpDate || "",
-          job.excitement || "",
-          job.contactPerson ? `"${job.contactPerson.replace(/"/g, '""')}"` : "",
-          job.contactEmail ? `"${job.contactEmail.replace(/"/g, '""')}"` : "",
-        ]
+        const rows = jobs.map((job) => {
+          return [
+            job.id,
+            `"${job.company.replace(/"/g, '""')}"`,
+            `"${job.position.replace(/"/g, '""')}"`,
+            job.location ? `"${job.location.replace(/"/g, '""')}"` : "",
+            job.salary || "",
+            job.date || "",
+            job.status,
+            job.notes ? `"${job.notes.replace(/"/g, '""')}"` : "",
+            job.url || "",
+            job.priority || "",
+            job.tags ? `"${job.tags.join(";").replace(/"/g, '""')}"` : "",
+            job.description ? `"${job.description.replace(/"/g, '""')}"` : "",
+            job.workMode || "",
+          ].join(",")
+        })
 
-        csv += row.join(",") + "\n"
+        content = [headers, ...rows].join("\n")
+        filename = `job-tracker-export-${new Date().toISOString().split("T")[0]}.csv`
+        mimeType = "text/csv"
+      }
+
+      // Create download link
+      const blob = new Blob([content], { type: mimeType })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+
+      toast({
+        title: t("exportSuccessful"),
+        description: `${t("exportedJobsTo")} ${format.toUpperCase()}`,
       })
-
-      dataStr = csv
-      fileName = `job-applications-${new Date().toISOString().split("T")[0]}.csv`
+    } catch (error) {
+      console.error(`Error exporting to ${format}:`, error)
+      toast({
+        title: t("exportFailed"),
+        description: t("errorExportingJobs"),
+        variant: "destructive",
+      })
     }
-
-    const dataUri = `data:${format === "json" ? "application/json" : "text/csv"};charset=utf-8,${encodeURIComponent(dataStr)}`
-
-    const linkElement = document.createElement("a")
-    linkElement.setAttribute("href", dataUri)
-    linkElement.setAttribute("download", fileName)
-    linkElement.click()
-
-    toast({
-      title: t("exportSuccessful"),
-      description: `${t("dataExportedAs")} ${format.toUpperCase()}`,
-    })
   }
 
   const importJobs = () => {
     const input = document.createElement("input")
     input.type = "file"
     input.accept = ".json,.csv"
-
-    input.onchange = (e: Event) => {
+    
+    input.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0]
       if (!file) return
 
       const reader = new FileReader()
+      
       reader.onload = (event) => {
         try {
-          const fileData = event.target?.result as string
-          const fileExt = file.name.split(".").pop()?.toLowerCase()
-
-          let importedJobs: JobData[] = []
-
-          if (fileExt === "json") {
-            importedJobs = JSON.parse(fileData)
-
-            // Add empty descriptions if missing
-            importedJobs = importedJobs.map((job) => ({
-              ...job,
-              description: job.description || "",
-            }))
-
-            // Save imported jobs
-            saveJobs([...jobs, ...importedJobs])
-          } else if (fileExt === "csv") {
-            // Parse CSV and add to existing jobs
-            const parsedJobs = parseCSV(fileData)
-            saveJobs([...jobs, ...parsedJobs])
+          const fileContent = event.target?.result as string
+          
+          // Determine file type based on extension
+          if (file.name.endsWith(".json")) {
+            // Parse JSON
+            const importedJobs = JSON.parse(fileContent) as JobData[]
+            
+            // Basic validation
+            if (!Array.isArray(importedJobs) || !importedJobs.every(job => 
+              typeof job === 'object' && job.id && job.company && job.position && job.status)) {
+              throw new Error("Invalid JSON format")
+            }
+            
+            // Merge with existing jobs (avoid duplicates by ID)
+            const existingIds = new Set(jobs.map(job => job.id))
+            const newJobs = importedJobs.filter(job => !existingIds.has(job.id))
+            const updatedJobs = [...jobs, ...newJobs]
+            
+            setJobs(updatedJobs)
+            saveJobs(updatedJobs)
+            
+            toast({
+              title: t("importSuccessful"),
+              description: `${t("importedJobsCount")} ${newJobs.length}`,
+            })
+          } else if (file.name.endsWith(".csv")) {
+            // Parse CSV
+            const importedJobs = parseCSV(fileContent)
+            
+            // Merge with existing jobs (avoid duplicates by ID)
+            const existingIds = new Set(jobs.map(job => job.id))
+            const newJobs = importedJobs.filter(job => !existingIds.has(job.id))
+            const updatedJobs = [...jobs, ...newJobs]
+            
+            setJobs(updatedJobs)
+            saveJobs(updatedJobs)
+            
+            toast({
+              title: t("importSuccessful"),
+              description: `${t("importedJobsCount")} ${newJobs.length}`,
+            })
+          } else {
+            throw new Error("Unsupported file format")
           }
-
-          // Reload jobs
-          const loadedJobs = getJobs()
-          setJobs(loadedJobs)
-
-          toast({
-            title: t("importSuccessful"),
-            description: t("jobDataImportedSuccessfully"),
-          })
         } catch (error) {
+          console.error("Error importing jobs:", error)
           toast({
             title: t("importFailed"),
-            description: t("errorImportingData"),
+            description: t("errorImportingJobs"),
             variant: "destructive",
           })
         }
       }
+      
       reader.readAsText(file)
     }
-
+    
     input.click()
   }
 
@@ -578,6 +616,104 @@ export function JobBoard() {
     saveJobStates(reorderedStates)
   }
 
+  // Function to move columns via drag and drop
+  const moveColumn = useCallback(
+    (dragIndex: number, hoverIndex: number) => {
+      const dragColumn = jobStates[dragIndex]
+      const newJobStates = [...jobStates]
+
+      // Remove the dragged column
+      newJobStates.splice(dragIndex, 1)
+
+      // Insert the dragged column at the new position
+      newJobStates.splice(hoverIndex, 0, dragColumn)
+
+      // Update the order property for each column
+      const updatedJobStates = newJobStates.map((state, index) => ({
+        ...state,
+        order: index,
+      }))
+
+      setJobStates(updatedJobStates)
+      saveJobStates(updatedJobStates)
+    },
+    [jobStates],
+  )
+
+  // Scroll the columns container left or right
+  const scrollColumns = (direction: "left" | "right") => {
+    if (scrollContainerRef.current) {
+      const container = scrollContainerRef.current
+      const scrollAmount = 300 // Adjust as needed
+
+      if (direction === "left") {
+        container.scrollBy({ left: -scrollAmount, behavior: "smooth" })
+      } else {
+        container.scrollBy({ left: scrollAmount, behavior: "smooth" })
+      }
+    }
+  }
+
+  const handleOpenEditModal = (job: JobData) => {
+    setEditingJob(job)
+    setIsEditJobModalOpen(true)
+  }
+
+  const renderFloatingActionButton = () => {
+    if (!isMobile) return null
+    
+    return (
+      <Button
+        className="fixed bottom-4 right-4 rounded-full w-14 h-14 shadow-lg z-50"
+        onClick={() => setIsAddJobModalOpen(true)}
+      >
+        <Plus className="h-6 w-6" />
+      </Button>
+    )
+  }
+
+  const renderExportImportControls = () => (
+    <div className="flex items-center gap-2">
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2 lg:px-3"
+              onClick={() => exportJobs("json")}
+            >
+              <FileJson className="h-4 w-4" />
+              {!isSmallScreen && <span className="ml-2">{t("export")}</span>}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <p>{t("exportJobsToJSON")}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2 lg:px-3"
+              onClick={importJobs}
+            >
+              <FileUp className="h-4 w-4" />
+              {!isSmallScreen && <span className="ml-2">{t("import")}</span>}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <p>{t("importJobsFromJSON")}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+  )
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[50vh]">
@@ -588,296 +724,69 @@ export function JobBoard() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex flex-col gap-2 mb-2 p-2 md:p-4 sticky top-0 z-10 bg-background">
-        {/* Top controls */}
-        <div className="flex flex-wrap justify-between items-center gap-2">
-          <div className="relative w-full md:w-auto max-w-sm">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder={t("searchJobs")}
-              className="pl-8"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+      {/* Dashboard Header */}
+      <DashboardHeader searchTerm={searchTerm} onSearchChange={setSearchTerm} />
+
+      {/* Fixed Header with Controls */}
+      <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b">
+        <div className="flex justify-between items-center p-2 md:p-4">
+          {/* Left Controls */}
+          <div className="flex items-center space-x-2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size={isSmallScreen ? "icon" : "sm"}
+                    onClick={() => setIsAddStatusModalOpen(true)}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {!isSmallScreen && <span className="ml-2">Add Status</span>}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>{t("createNewStatusColumn")}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size={isSmallScreen ? "icon" : "sm"}
+                    onClick={() => setIsStatusManagerOpen(true)}
+                  >
+                    <ListReorder className="h-4 w-4" />
+                    {!isSmallScreen && <span className="ml-2">Manage Status</span>}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>{t("reorderRenameAndManageStatusColumns")}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
 
-          <div className="flex flex-wrap gap-2 items-center">
-            {view === "table" && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-9 gap-1">
-                    <Filter className="h-4 w-4" />
-                    {!isSmallScreen && t("filter")}
-                    {activeFilters.length > 0 && (
-                      <Badge variant="secondary" className="ml-1 px-1 py-0 h-5">
-                        {activeFilters.length}
-                      </Badge>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-80">
-                  <div className="space-y-4">
-                    <h4 className="font-medium">{t("filterJobs")}</h4>
-
-                    {/* Status filter */}
-                    <div className="space-y-2">
-                      <Label>{t("status")}</Label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {jobStates.map((state) => (
-                          <div key={state.id} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={`status-${state.id}`}
-                              checked={filter.status?.includes(state.id)}
-                              onCheckedChange={(checked) => {
-                                setFilter((prev) => {
-                                  const newStatuses = prev.status || []
-                                  if (checked) {
-                                    return { ...prev, status: [...newStatuses, state.id] }
-                                  } else {
-                                    return { ...prev, status: newStatuses.filter((s) => s !== state.id) }
-                                  }
-                                })
-                              }}
-                            />
-                            <Label htmlFor={`status-${state.id}`} className="flex items-center gap-1.5">
-                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: state.color }} />
-                              {state.name}
-                            </Label>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Excitement filter */}
-                    <div className="space-y-2">
-                      <Label>{t("excitementLevel")}</Label>
-                      <div className="flex gap-2">
-                        {[1, 2, 3, 4, 5].map((rating) => (
-                          <div key={rating} className="flex flex-col items-center">
-                            <Checkbox
-                              id={`rating-${rating}`}
-                              checked={filter.excitement?.includes(rating)}
-                              onCheckedChange={(checked) => {
-                                setFilter((prev) => {
-                                  const newRatings = prev.excitement || []
-                                  if (checked) {
-                                    return { ...prev, excitement: [...newRatings, rating] }
-                                  } else {
-                                    return { ...prev, excitement: newRatings.filter((r) => r !== rating) }
-                                  }
-                                })
-                              }}
-                            />
-                            <Label htmlFor={`rating-${rating}`} className="text-xs mt-1">
-                              {rating}★
-                            </Label>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Work Mode filter */}
-                    <div className="space-y-2">
-                      <Label>{t("workMode")}</Label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {["remote", "onsite", "hybrid", "flexible"].map((mode) => (
-                          <div key={mode} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={`mode-${mode}`}
-                              checked={filter.workMode?.includes(mode as any)}
-                              onCheckedChange={(checked) => {
-                                setFilter((prev) => {
-                                  const newModes = prev.workMode || []
-                                  if (checked) {
-                                    return { ...prev, workMode: [...newModes, mode as any] }
-                                  } else {
-                                    return { ...prev, workMode: newModes.filter((m) => m !== mode) }
-                                  }
-                                })
-                              }}
-                            />
-                            <Label htmlFor={`mode-${mode}`} className="capitalize">
-                              {t(mode)}
-                            </Label>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Company filter */}
-                    <div className="space-y-2">
-                      <Label>{t("company")}</Label>
-                      <Select
-                        value={filter.company?.[0] || ""}
-                        onValueChange={(value) => {
-                          if (value && value !== "all") {
-                            setFilter((prev) => ({ ...prev, company: [value] }))
-                          } else {
-                            setFilter((prev) => {
-                              const { company, ...rest } = prev
-                              return rest
-                            })
-                          }
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={t("selectCompany")} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">{t("allCompanies")}</SelectItem>
-                          {uniqueCompanies.map((company) => (
-                            <SelectItem key={company} value={company}>
-                              {company}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Location filter */}
-                    <div className="space-y-2">
-                      <Label>{t("location")}</Label>
-                      <Select
-                        value={filter.location?.[0] || ""}
-                        onValueChange={(value) => {
-                          if (value && value !== "all") {
-                            setFilter((prev) => ({ ...prev, location: [value] }))
-                          } else {
-                            setFilter((prev) => {
-                              const { location, ...rest } = prev
-                              return rest
-                            })
-                          }
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={t("selectLocation")} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">{t("allLocations")}</SelectItem>
-                          {uniqueLocations.map((location) => (
-                            <SelectItem key={location} value={location}>
-                              {location}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Tags filter */}
-                    <div className="space-y-2">
-                      <Label>{t("tags")}</Label>
-                      <Select
-                        value={filter.tags?.[0] || ""}
-                        onValueChange={(value) => {
-                          if (value && value !== "all") {
-                            setFilter((prev) => ({ ...prev, tags: [value] }))
-                          } else {
-                            setFilter((prev) => {
-                              const { tags, ...rest } = prev
-                              return rest
-                            })
-                          }
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={t("selectTag")} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">{t("allTags")}</SelectItem>
-                          {uniqueTags.map((tag) => (
-                            <SelectItem key={tag} value={tag}>
-                              {tag}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex justify-between pt-2">
-                      <Button variant="outline" size="sm" onClick={clearFilters}>
-                        {t("clearAll")}
-                      </Button>
-                      <Button size="sm" onClick={() => document.body.click()}>
-                        {t("applyFilters")}
-                      </Button>
-                    </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            )}
-
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 gap-1">
-                  {sort.order === "asc" ? <SortAsc className="h-4 w-4" /> : <SortDesc className="h-4 w-4" />}
-                  {!isSmallScreen && t("sort")}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-60">
-                <div className="space-y-4">
-                  <h4 className="font-medium">{t("sortJobs")}</h4>
-
-                  <div className="space-y-2">
-                    <Label>{t("sortBy")}</Label>
-                    <Select
-                      value={sort.field}
-                      onValueChange={(value) => setSort((prev) => ({ ...prev, field: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="date">{t("date")}</SelectItem>
-                        <SelectItem value="company">{t("company")}</SelectItem>
-                        <SelectItem value="position">{t("position")}</SelectItem>
-                        <SelectItem value="priority">{t("excitement")}</SelectItem>
-                        <SelectItem value="status">{t("status")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>{t("order")}</Label>
-                    <div className="flex gap-2">
-                      <Button
-                        variant={sort.order === "asc" ? "default" : "outline"}
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => setSort((prev) => ({ ...prev, order: "asc" }))}
-                      >
-                        <SortAsc className="h-4 w-4 mr-2" /> {t("ascending")}
-                      </Button>
-                      <Button
-                        variant={sort.order === "desc" ? "default" : "outline"}
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => setSort((prev) => ({ ...prev, order: "desc" }))}
-                      >
-                        <SortDesc className="h-4 w-4 mr-2" /> {t("descending")}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-
+          {/* Center/Main Controls */}
+          <div className="flex items-center space-x-2">
             <div className="flex border rounded-md">
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant={view === "kanban" ? "default" : "ghost"}
-                      size="sm"
+                      variant="default"
+                      size="default"
                       className="rounded-r-none h-9"
                       onClick={() => setView("kanban")}
                     >
                       <Columns className="h-4 w-4" />
+                      {!isSmallScreen && <span className="ml-2">Kanban</span>}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{t("kanbanView")}</p>
+                  <TooltipContent side="bottom">
+                    <p>{t("switchToKanbanBoardView")}</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -886,61 +795,90 @@ export function JobBoard() {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant={view === "table" ? "default" : "ghost"}
-                      size="sm"
+                      variant="default"
+                      size="default"
                       className="rounded-l-none h-9"
                       onClick={() => setView("table")}
                     >
                       <Table className="h-4 w-4" />
+                      {!isSmallScreen && <span className="ml-2">Table</span>}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{t("tableView")}</p>
+                  <TooltipContent side="bottom">
+                    <p>{t("switchToTableView")}</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             </div>
+          </div>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9">
-                  <MoreHorizontal className="mr-2 h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => exportJobs("json")}>
-                  <Download className="mr-2 h-4 w-4" /> Export JSON
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => exportJobs("csv")}>
-                  <Download className="mr-2 h-4 w-4" /> Export CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={importJobs}>
-                  <FileUp className="mr-2 h-4 w-4" /> Import
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/settings/job-states">
-                    <Settings className="mr-2 h-4 w-4" /> Manage States
-                  </Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          {/* Right Controls */}
+          <div className="flex items-center space-x-2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="default"
+                    onClick={() => setIsExtractionModalOpen(true)}
+                    className={isSmallScreen ? "px-2" : ""}
+                  >
+                    <Loader2 className="h-4 w-4" />
+                    {!isSmallScreen && <span className="ml-2">Extract</span>}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>{t("extractJobDetailsFromUrl")}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
 
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <AddJobModal
-                    onAddJob={addJob}
-                    buttonVariant="default"
-                    buttonSize="sm"
-                    buttonClassName="h-9"
-                    buttonIcon={<Plus className="h-4 w-4 mr-2" />}
-                    buttonLabel={!isSmallScreen ? t("addJob") : ""}
-                    jobStates={jobStates}
-                  />
+                  <Button
+                    variant="default"
+                    size="default"
+                    onClick={() => setIsAddJobModalOpen(true)}
+                    className={isSmallScreen ? "px-2" : ""}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {!isSmallScreen && <span className="ml-2">New Job</span>}
+                  </Button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  <p>{t("addNewJob")}</p>
+                <TooltipContent side="bottom">
+                  <p>{t("createNewJobApplication")}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="icon" className="h-9 w-9">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => exportJobs("json")}>
+                        <FileJson className="mr-2 h-4 w-4" /> {t("exportJson")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={importJobs}>
+                        <FileUp className="mr-2 h-4 w-4" /> {t("import")}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem asChild>
+                        <Link href="/settings/job-states">
+                          <Settings className="mr-2 h-4 w-4" /> {t("manageStates")}
+                        </Link>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>{t("moreOptions")}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -949,7 +887,7 @@ export function JobBoard() {
 
         {/* Active filters - only show in table view */}
         {view === "table" && activeFilters.length > 0 && (
-          <div className="flex flex-wrap gap-2 items-center">
+          <div className="flex flex-wrap gap-2 items-center p-2 px-4">
             <span className="text-sm text-muted-foreground">{t("activeFilters")}:</span>
             {activeFilters.map((filter, index) => (
               <Badge key={index} variant="secondary" className="gap-1 px-2 py-1">
@@ -970,67 +908,88 @@ export function JobBoard() {
           </div>
         )}
 
-        <div className="text-sm text-muted-foreground">
+        <div className="text-sm text-muted-foreground px-4 py-1">
           {filteredJobs.length} {t("jobApplications")}
         </div>
       </div>
 
       {view === "kanban" ? (
         <DndProvider backend={HTML5Backend}>
-          <div className="flex items-center mb-2 px-4">
-            {/* Status management controls */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" onClick={() => setIsAddStatusModalOpen(true)} className="mr-2">
-                    <Plus className="h-4 w-4 mr-2" /> {t("addColumn")}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{t("addNewStatus")}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" onClick={() => setIsStatusManagerOpen(true)} className="mr-2">
-                    <ListReorder className="h-4 w-4 mr-2" /> {t("manageColumns")}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{t("reorderAndManageColumns")}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-
-          <ScrollArea className="w-full flex-1 pb-4">
-            <div ref={scrollContainerRef} className="flex gap-4 pb-8 px-4 min-h-[calc(100vh-12rem)]">
-              {jobStates.map((state, index) => (
-                <JobColumn
-                  key={state.id}
-                  id={`column-${state.id}`}
-                  title={state.name}
-                  type={state.id}
-                  color={state.color}
-                  onDrop={(jobId) => moveJob(jobId, state.id)}
-                  count={filteredJobs.filter((job) => job.status === state.id).length}
-                  onSettingsClick={() => {
-                    setIsStatusManagerOpen(true)
-                  }}
-                >
-                  {filteredJobs
-                    .filter((job) => job.status === state.id)
-                    .map((job) => (
-                      <JobCard key={job.id} job={job} onJobUpdate={updateJob} onJobDelete={deleteJob} />
-                    ))}
-                </JobColumn>
-              ))}
+          <div className="relative flex-1 overflow-hidden">
+            {/* Scroll Left Button */}
+            <div className="absolute left-0 top-1/2 transform -translate-y-1/2 z-20">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      onClick={() => scrollColumns("left")}
+                      className="rounded-l-none opacity-75 hover:opacity-100"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <p>{t("scrollColumnsLeft")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
-            <ScrollBar orientation="horizontal" />
-          </ScrollArea>
+
+            <ScrollArea className="w-full h-full">
+              <div ref={scrollContainerRef} className="flex gap-4 pb-8 px-4 min-h-[calc(100vh-12rem)]">
+                {jobStates.map((state, index) => (
+                  <DraggableColumn
+                    key={state.id}
+                    id={`column-${state.id}`}
+                    index={index}
+                    moveColumn={moveColumn}
+                    title={state.name}
+                    type={state.id}
+                    color={state.color}
+                    onDrop={(jobId) => moveJob(jobId, state.id)}
+                    count={filteredJobs.filter((job) => job.status === state.id).length}
+                    onSettingsClick={() => setIsStatusManagerOpen(true)}
+                  >
+                    {filteredJobs
+                      .filter((job) => job.status === state.id)
+                      .map((job) => (
+                        <JobCard
+                          key={job.id}
+                          job={job}
+                          onJobUpdate={updateJob}
+                          onJobDelete={deleteJob}
+                          onJobEdit={handleOpenEditModal}
+                        />
+                      ))}
+                  </DraggableColumn>
+                ))}
+              </div>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
+
+            {/* Scroll Right Button */}
+            <div className="absolute right-0 top-1/2 transform -translate-y-1/2 z-20">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      onClick={() => scrollColumns("right")}
+                      className="rounded-r-none opacity-75 hover:opacity-100"
+                    >
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">
+                    <p>{t("scrollColumnsRight")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          </div>
         </DndProvider>
       ) : (
         <div className="flex-1 overflow-auto px-4">
@@ -1040,26 +999,22 @@ export function JobBoard() {
             onJobUpdate={updateJob}
             onJobDelete={deleteJob}
             onStatusChange={moveJob}
+            onJobEdit={handleOpenEditModal}
           />
         </div>
       )}
 
-      {/* Mobile Add Button (Fixed) */}
-      {isMobile && (
-        <div className="fixed bottom-6 right-6 z-50">
-          <AddJobModal
-            onAddJob={addJob}
-            buttonVariant="default"
-            buttonSize="lg"
-            buttonClassName="rounded-full shadow-lg h-14 w-14 p-0"
-            buttonIcon={<Plus className="h-6 w-6" />}
-            buttonLabel=""
-            jobStates={jobStates}
-          />
-        </div>
-      )}
+      {/* Fixed Add Job Button */}
+      {renderFloatingActionButton()}
 
-      {/* Add Status Modal */}
+      {/* Modals */}
+      <EnhancedJobModal
+        onAddJob={addJob}
+        open={isAddJobModalOpen}
+        onClose={() => setIsAddJobModalOpen(false)}
+        jobStates={jobStates}
+      />
+
       <AddStatusModal
         open={isAddStatusModalOpen}
         onOpenChange={setIsAddStatusModalOpen}
@@ -1067,8 +1022,7 @@ export function JobBoard() {
         existingStates={jobStates}
       />
 
-      {/* Status Manager Modal */}
-      <StatusManagerModal
+      <EnhancedStatusModal
         open={isStatusManagerOpen}
         onOpenChange={setIsStatusManagerOpen}
         jobStates={jobStates}
@@ -1077,6 +1031,45 @@ export function JobBoard() {
         onDeleteStatus={handleDeleteStatus}
         onReorderStatuses={handleReorderStatuses}
       />
+
+      <AdvancedJobExtractor
+        open={isExtractionModalOpen}
+        onOpenChange={setIsExtractionModalOpen}
+        onExtracted={(jobData) => {
+          // Create a new job with the extracted data
+          const newJob: JobData = {
+            id: Date.now().toString(),
+            company: jobData.company || "",
+            position: jobData.position || "",
+            location: jobData.location,
+            salary: jobData.salary,
+            date: new Date().toISOString().split("T")[0],
+            applyDate: new Date().toISOString().split("T")[0],
+            status: jobStates.find((s) => s.isDefault)?.id || jobStates[0].id,
+            description: jobData.description || "",
+            url: jobData.url,
+            tags: jobData.tags || [],
+            workMode: jobData.workMode,
+            priority: 3,
+          }
+
+          addJob(newJob)
+          setIsExtractionModalOpen(false)
+        }}
+      />
+
+      {editingJob && (
+        <EnhancedJobModal
+          jobToEdit={editingJob}
+          onEditJob={updateJob}
+          open={isEditJobModalOpen}
+          onClose={() => {
+            setIsEditJobModalOpen(false)
+            setEditingJob(null)
+          }}
+          jobStates={jobStates}
+        />
+      )}
     </div>
   )
 }

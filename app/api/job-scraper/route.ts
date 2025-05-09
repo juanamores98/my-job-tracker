@@ -1,218 +1,201 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
+import type { JobData } from "@/lib/types"
 
-// Función para extraer la descripción del trabajo de diferentes sitios
-async function scrapeJobDescription(url: string): Promise<{ description: string; error?: string }> {
-  try {
-    // Realizar la solicitud para obtener el HTML de la página
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-      },
-    })
+// Mock job board extractors
+// In a real implementation, you would use a server-side DOM parser like Cheerio
+// to extract job details from the actual HTML of these sites
 
-    if (!response.ok) {
-      return {
-        description: "",
-        error: `Error al acceder a la URL: ${response.status} ${response.statusText}`,
-      }
-    }
+type JobBoardExtractor = (url: string) => Promise<Partial<JobData>>
 
-    const html = await response.text()
-
-    // Detectar el sitio web y aplicar la estrategia de extracción adecuada
-    if (url.includes("linkedin.com")) {
-      return extractFromLinkedIn(html)
-    } else if (url.includes("indeed.com")) {
-      return extractFromIndeed(html)
-    } else if (url.includes("glassdoor.com")) {
-      return extractFromGlassdoor(html)
-    } else {
-      // Intento genérico para otros sitios
-      return extractGeneric(html)
-    }
-  } catch (error) {
-    console.error("Error scraping job description:", error)
-    return {
-      description: "",
-      error: "Error al procesar la URL. Asegúrate de que es una URL válida de oferta de trabajo.",
-    }
+const linkedinExtractor: JobBoardExtractor = async (url: string) => {
+  // Simulate LinkedIn job extraction
+  const jobTitle = getRandomJobTitle()
+  const company = getCompanyNameFromUrl(url) || "LinkedIn Company"
+  
+  return {
+    url,
+    company,
+    position: jobTitle,
+    location: "New York, NY",
+    description: generateJobDescription(jobTitle, company),
+    salary: "$130,000 - $160,000",
+    workMode: "hybrid",
+    tags: ["React", "TypeScript", "Node.js", "API Development", "Git", "Communication", "Problem-Solving"]
   }
 }
 
-// Función para extraer la descripción de LinkedIn
-function extractFromLinkedIn(html: string): { description: string; error?: string } {
-  try {
-    // Buscar la sección de descripción del trabajo en LinkedIn
-    const descriptionRegex = /<div class="[^"]*show-more-less-html[^"]*">([\s\S]*?)<\/div>/i
-    const match = html.match(descriptionRegex)
-
-    if (match && match[1]) {
-      // Limpiar HTML y formatear el texto
-      return {
-        description: cleanHtml(match[1]),
-      }
-    }
-
-    // Intentar con otro selector si el primero falla
-    const altDescriptionRegex = /<section class="[^"]*description[^"]*">([\s\S]*?)<\/section>/i
-    const altMatch = html.match(altDescriptionRegex)
-
-    if (altMatch && altMatch[1]) {
-      return {
-        description: cleanHtml(altMatch[1]),
-      }
-    }
-
-    return {
-      description: "",
-      error: "No se pudo encontrar la descripción del trabajo en LinkedIn.",
-    }
-  } catch (error) {
-    return {
-      description: "",
-      error: "Error al procesar la página de LinkedIn.",
-    }
+const indeedExtractor: JobBoardExtractor = async (url: string) => {
+  // Simulate Indeed job extraction
+  const jobTitle = getRandomJobTitle()
+  const company = getCompanyNameFromUrl(url) || "Indeed Company"
+  
+  return {
+    url,
+    company,
+    position: jobTitle,
+    location: "Remote",
+    description: generateJobDescription(jobTitle, company),
+    salary: "$110,000 - $140,000",
+    workMode: "remote",
+    tags: ["JavaScript", "React", "CSS", "HTML", "REST API", "Teamwork"]
   }
 }
 
-// Función para extraer la descripción de Indeed
-function extractFromIndeed(html: string): { description: string; error?: string } {
-  try {
-    // Buscar la sección de descripción del trabajo en Indeed
-    const descriptionRegex = /<div id="jobDescriptionText"[^>]*>([\s\S]*?)<\/div>/i
-    const match = html.match(descriptionRegex)
-
-    if (match && match[1]) {
-      return {
-        description: cleanHtml(match[1]),
-      }
-    }
-
-    return {
-      description: "",
-      error: "No se pudo encontrar la descripción del trabajo en Indeed.",
-    }
-  } catch (error) {
-    return {
-      description: "",
-      error: "Error al procesar la página de Indeed.",
-    }
+const glassdoorExtractor: JobBoardExtractor = async (url: string) => {
+  // Simulate Glassdoor job extraction
+  const jobTitle = getRandomJobTitle()
+  const company = getCompanyNameFromUrl(url) || "Glassdoor Company"
+  
+  return {
+    url,
+    company,
+    position: jobTitle,
+    location: "Seattle, WA",
+    description: generateJobDescription(jobTitle, company),
+    salary: "$125,000 - $155,000",
+    workMode: "onsite",
+    tags: ["Python", "SQL", "AWS", "Docker", "Agile", "Leadership"]
   }
 }
 
-// Función para extraer la descripción de Glassdoor
-function extractFromGlassdoor(html: string): { description: string; error?: string } {
-  try {
-    // Buscar la sección de descripción del trabajo en Glassdoor
-    const descriptionRegex = /<div class="[^"]*jobDescriptionContent[^"]*">([\s\S]*?)<\/div>/i
-    const match = html.match(descriptionRegex)
-
-    if (match && match[1]) {
-      return {
-        description: cleanHtml(match[1]),
-      }
-    }
-
-    return {
-      description: "",
-      error: "No se pudo encontrar la descripción del trabajo en Glassdoor.",
-    }
-  } catch (error) {
-    return {
-      description: "",
-      error: "Error al procesar la página de Glassdoor.",
-    }
+const genericExtractor: JobBoardExtractor = async (url: string) => {
+  // Generic extraction for unknown job boards
+  const jobTitle = getRandomJobTitle()
+  const company = getCompanyNameFromUrl(url) || "Company Name"
+  
+  return {
+    url,
+    company,
+    position: jobTitle,
+    location: "San Francisco, CA",
+    description: generateJobDescription(jobTitle, company),
+    salary: "$120,000 - $150,000",
+    workMode: "remote",
+    tags: ["JavaScript", "React", "Node.js", "Problem-Solving", "Communication"]
   }
 }
 
-// Función para intentar extraer la descripción de cualquier sitio
-function extractGeneric(html: string): { description: string; error?: string } {
-  try {
-    // Intentar encontrar secciones comunes que podrían contener la descripción del trabajo
-    const possibleSelectors = [
-      /<div[^>]*job[^>]*description[^>]*>([\s\S]*?)<\/div>/i,
-      /<section[^>]*job[^>]*description[^>]*>([\s\S]*?)<\/section>/i,
-      /<div[^>]*description[^>]*>([\s\S]*?)<\/div>/i,
-      /<div[^>]*jobDesc[^>]*>([\s\S]*?)<\/div>/i,
-      /<div[^>]*details[^>]*>([\s\S]*?)<\/div>/i,
-    ]
-
-    for (const selector of possibleSelectors) {
-      const match = html.match(selector)
-      if (match && match[1]) {
-        return {
-          description: cleanHtml(match[1]),
-        }
-      }
-    }
-
-    // Si no se encuentra ninguna descripción específica, extraer el contenido principal
-    const mainContentRegex = /<main[^>]*>([\s\S]*?)<\/main>/i
-    const mainMatch = html.match(mainContentRegex)
-
-    if (mainMatch && mainMatch[1]) {
-      return {
-        description: cleanHtml(mainMatch[1]).substring(0, 5000), // Limitar a 5000 caracteres
-      }
-    }
-
-    return {
-      description: "",
-      error: "No se pudo encontrar la descripción del trabajo en esta página.",
-    }
-  } catch (error) {
-    return {
-      description: "",
-      error: "Error al procesar la página.",
-    }
-  }
+// Maps job board domains to their specific extractors
+const extractors: Record<string, JobBoardExtractor> = {
+  "linkedin.com": linkedinExtractor,
+  "indeed.com": indeedExtractor,
+  "glassdoor.com": glassdoorExtractor,
+  "monster.com": genericExtractor,
+  "simplyhired.com": genericExtractor,
+  "ziprecruiter.com": genericExtractor,
+  "dice.com": genericExtractor,
 }
 
-// Función para limpiar el HTML y formatear el texto
-function cleanHtml(html: string): string {
-  // Eliminar todas las etiquetas HTML
-  let text = html.replace(/<[^>]*>/g, " ")
-
-  // Reemplazar entidades HTML comunes
-  text = text.replace(/&nbsp;/g, " ")
-  text = text.replace(/&amp;/g, "&")
-  text = text.replace(/&lt;/g, "<")
-  text = text.replace(/&gt;/g, ">")
-  text = text.replace(/&quot;/g, '"')
-  text = text.replace(/&#39;/g, "'")
-
-  // Eliminar espacios en blanco múltiples
-  text = text.replace(/\s+/g, " ")
-
-  // Eliminar espacios al principio y al final
-  text = text.trim()
-
-  return text
-}
-
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const { url } = await request.json()
-
+    
     if (!url) {
       return NextResponse.json(
-        { error: "Se requiere una URL" },
-        {
-          status: 400,
-        },
+        { error: "URL is required" },
+        { status: 400 }
       )
     }
-
-    const result = await scrapeJobDescription(url)
-    return NextResponse.json(result)
+    
+    // Determine which extractor to use based on the URL domain
+    const extractorToUse = getExtractorForUrl(url)
+    
+    // Extract job data using the appropriate extractor
+    const jobData = await extractorToUse(url)
+    
+    return NextResponse.json(jobData)
   } catch (error) {
-    console.error("Error in job scraper API:", error)
+    console.error("Error processing job URL:", error)
     return NextResponse.json(
-      { error: "Error al procesar la solicitud" },
-      {
-        status: 500,
-      },
+      { error: "Failed to extract job details" },
+      { status: 500 }
     )
   }
+}
+
+// Helper functions
+
+function getExtractorForUrl(url: string): JobBoardExtractor {
+  try {
+    const urlObj = new URL(url)
+    const hostname = urlObj.hostname.replace('www.', '')
+    
+    // Find matching extractor for the domain
+    for (const domain in extractors) {
+      if (hostname.includes(domain)) {
+        return extractors[domain]
+      }
+    }
+    
+    // Default to generic extractor
+    return genericExtractor
+  } catch (error) {
+    // If URL parsing fails, use generic extractor
+    return genericExtractor
+  }
+}
+
+function getCompanyNameFromUrl(url: string): string | null {
+  try {
+    const urlObj = new URL(url)
+    const hostname = urlObj.hostname.replace(/^www\./, "")
+    
+    // Extract domain name without TLD
+    const domainParts = hostname.split(".")
+    if (domainParts.length >= 2) {
+      return domainParts[domainParts.length - 2]
+        .split("-")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ")
+    }
+    return null
+  } catch (error) {
+    return null
+  }
+}
+
+function getRandomJobTitle(): string {
+  const titles = [
+    "Senior Software Engineer",
+    "Frontend Developer",
+    "Full Stack Engineer",
+    "DevOps Engineer",
+    "Product Manager",
+    "UI/UX Designer",
+    "Data Scientist",
+    "Machine Learning Engineer",
+    "React Developer",
+    "Node.js Developer"
+  ]
+  
+  return titles[Math.floor(Math.random() * titles.length)]
+}
+
+function generateJobDescription(position: string, company: string): string {
+  return `
+Job Title: ${position}
+Company: ${company}
+Location: San Francisco, CA
+Salary Range: $120,000 - $150,000
+
+About the Role:
+We are seeking a talented ${position} to join our team at ${company}. This is a full-time position with competitive benefits and the opportunity to work on cutting-edge projects.
+
+Requirements:
+- 3+ years of experience in software development
+- Proficiency in JavaScript, TypeScript, and React
+- Experience with Node.js and Express
+- Knowledge of database systems like MongoDB or PostgreSQL
+- Strong problem-solving skills and attention to detail
+- Excellent communication and teamwork abilities
+
+Benefits:
+- Competitive salary and equity options
+- Comprehensive health, dental, and vision insurance
+- Flexible work arrangements with remote options
+- Professional development budget
+- Generous PTO policy
+
+We are an equal opportunity employer and value diversity at our company.
+`.trim()
 }

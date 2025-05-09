@@ -1,20 +1,20 @@
 "use client"
 
 import React from "react"
-
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetClose,
+} from "@/components/ui/sheet"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,8 +32,10 @@ import type { JobState } from "@/lib/types"
 import { DndProvider, useDrag, useDrop } from "react-dnd"
 import { HTML5Backend } from "react-dnd-html5-backend"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
+import { useMediaQuery } from "@/hooks/use-media-query"
 
-interface StatusManagerModalProps {
+interface EnhancedStatusModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   jobStates: JobState[]
@@ -188,7 +190,7 @@ const DraggableStatusItem = ({
   )
 }
 
-export function StatusManagerModal({
+export function EnhancedStatusModal({
   open,
   onOpenChange,
   jobStates,
@@ -196,7 +198,7 @@ export function StatusManagerModal({
   onUpdateStatus,
   onDeleteStatus,
   onReorderStatuses,
-}: StatusManagerModalProps) {
+}: EnhancedStatusModalProps) {
   const [states, setStates] = useState<JobState[]>([])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -210,6 +212,7 @@ export function StatusManagerModal({
   })
   const [editingState, setEditingState] = useState<JobState | null>(null)
   const [deleteStateId, setDeleteStateId] = useState<string | null>(null)
+  const isMobile = useMediaQuery("(max-width: 768px)")
 
   const { toast } = useToast()
   const { t } = useLanguage()
@@ -248,27 +251,35 @@ export function StatusManagerModal({
       .replace(/^-+/, "")
       .replace(/-+$/, "")
 
+    if (!id) {
+      toast({
+        title: t("invalidStatusName"),
+        description: t("statusNameCannotBeEmpty"),
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Check if ID already exists
+    if (states.some((state) => state.id === id)) {
+      toast({
+        title: t("statusAlreadyExists"),
+        description: t("pleaseUseADifferentName"),
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Add the new state with the generated ID
     const stateToAdd: JobState = {
       ...newState,
-      id: id || `state-${Date.now()}`,
+      id,
       order: states.length,
     }
 
-    // If this is the first state or marked as default, ensure it's the only default
-    if (stateToAdd.isDefault || states.length === 0) {
-      const updatedStates = states.map((s) => ({
-        ...s,
-        isDefault: false,
-      }))
-      setStates([...updatedStates, stateToAdd])
-    } else {
-      setStates([...states, stateToAdd])
-    }
-
-    // Call the parent's add handler
     onAddStatus(stateToAdd)
 
-    // Reset form and close dialog
+    // Reset the form and close the dialog
     setNewState({
       id: "",
       name: "",
@@ -277,94 +288,38 @@ export function StatusManagerModal({
       isDefault: false,
     })
     setIsAddDialogOpen(false)
-
-    toast({
-      title: t("statusAdded"),
-      description: `${t("newStatusAdded")}: ${stateToAdd.name}`,
-    })
   }
 
   const handleEditState = () => {
     if (!editingState) return
 
-    // Update the state in the local array
-    const updatedStates = states.map((state) => {
-      if (state.id === editingState.id) {
-        return editingState
-      }
+    // Ensure the name is not empty
+    if (!editingState.name.trim()) {
+      toast({
+        title: t("invalidStatusName"),
+        description: t("statusNameCannotBeEmpty"),
+        variant: "destructive",
+      })
+      return
+    }
 
-      // If this state is now default, remove default from others
-      if (editingState.isDefault && state.id !== editingState.id) {
-        return {
-          ...state,
-          isDefault: false,
-        }
-      }
-
-      return state
-    })
-
-    setStates(updatedStates)
-
-    // Call the parent's update handler
+    // Call the update callback
     onUpdateStatus(editingState)
 
-    // Reset form and close dialog
-    setEditingState(null)
+    // Close the dialog
     setIsEditDialogOpen(false)
-
-    toast({
-      title: t("statusUpdated"),
-      description: `${t("statusUpdated")}: ${editingState.name}`,
-    })
+    setEditingState(null)
   }
 
   const handleDeleteState = () => {
     if (!deleteStateId) return
 
-    // Find the state to delete
-    const stateToDelete = states.find((s) => s.id === deleteStateId)
-    if (!stateToDelete) return
-
-    // Check if it's the default state
-    if (stateToDelete.isDefault) {
-      toast({
-        title: t("cannotDeleteStatus"),
-        description: t("cannotDeleteDefaultStatus"),
-        variant: "destructive",
-      })
-      setDeleteStateId(null)
-      setIsDeleteDialogOpen(false)
-      return
-    }
-
-    // Check if it's a system state
-    if (stateToDelete.isSystem) {
-      toast({
-        title: t("cannotDeleteStatus"),
-        description: t("cannotDeleteSystemStatus"),
-        variant: "destructive",
-      })
-      setDeleteStateId(null)
-      setIsDeleteDialogOpen(false)
-      return
-    }
-
-    // Remove the state from the local array
-    const updatedStates = states.filter((s) => s.id !== deleteStateId)
-    setStates(updatedStates)
-
-    // Call the parent's delete handler
+    // Call the delete callback
     onDeleteStatus(deleteStateId)
 
-    // Reset and close dialog
-    setDeleteStateId(null)
+    // Close the dialog
     setIsDeleteDialogOpen(false)
-
-    toast({
-      title: t("statusDeleted"),
-      description: t("statusDeletedAndJobsMoved"),
-    })
+    setDeleteStateId(null)
   }
 
   const handleSaveChanges = () => {
@@ -373,210 +328,189 @@ export function StatusManagerModal({
 
     // Close the modal
     onOpenChange(false)
-
-    toast({
-      title: t("changesSaved"),
-      description: t("statusOrderUpdated"),
-    })
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{t("manageStatuses")}</DialogTitle>
-          <DialogDescription>{t("manageStatusesDescription")}</DialogDescription>
-        </DialogHeader>
-
-        <div className="py-4">
-          <Button onClick={() => setIsAddDialogOpen(true)} className="mb-4">
-            <Plus className="h-4 w-4 mr-2" />
-            {t("addNewStatus")}
-          </Button>
-
-          <DndProvider backend={HTML5Backend}>
-            <div className="space-y-2">
-              {states.map((state, index) => (
-                <DraggableStatusItem
-                  key={state.id}
-                  state={state}
-                  index={index}
-                  moveStatus={moveStatus}
-                  onEdit={(state) => {
-                    setEditingState(state)
-                    setIsEditDialogOpen(true)
-                  }}
-                  onDelete={(stateId) => {
-                    setDeleteStateId(stateId)
-                    setIsDeleteDialogOpen(true)
-                  }}
-                />
-              ))}
-
-              {states.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">{t("noStatusesDefined")}</div>
-              )}
+    <>
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent 
+          side={isMobile ? "bottom" : "right"} 
+          className={cn(
+            "sm:max-w-md w-full flex flex-col",
+            isMobile ? "h-[90vh] rounded-t-xl" : ""
+          )}
+        >
+          <SheetHeader className="mb-6">
+            <SheetTitle className="text-xl">{t("manageStatuses")}</SheetTitle>
+            <SheetDescription>{t("dragToReorderStatusesOrEdit")}</SheetDescription>
+          </SheetHeader>
+          
+          <div className="flex-1 overflow-y-auto pb-6">
+            <div className="flex justify-end mb-4">
+              <Button variant="outline" size="sm" onClick={() => setIsAddDialogOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                {t("addStatus")}
+              </Button>
             </div>
-          </DndProvider>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t("cancel")}
-          </Button>
-          <Button onClick={handleSaveChanges}>{t("saveChanges")}</Button>
-        </DialogFooter>
-      </DialogContent>
+            
+            <DndProvider backend={HTML5Backend}>
+              <div>
+                {states.map((state, index) => (
+                  <DraggableStatusItem
+                    key={state.id}
+                    index={index}
+                    state={state}
+                    moveStatus={moveStatus}
+                    onEdit={(state) => {
+                      setEditingState(state)
+                      setIsEditDialogOpen(true)
+                    }}
+                    onDelete={(stateId) => {
+                      setDeleteStateId(stateId)
+                      setIsDeleteDialogOpen(true)
+                    }}
+                  />
+                ))}
+              </div>
+            </DndProvider>
+          </div>
+          
+          <SheetFooter className="pt-4 border-t">
+            <div className="w-full flex justify-between">
+              <SheetClose asChild>
+                <Button variant="outline">{t("cancel")}</Button>
+              </SheetClose>
+              <Button onClick={handleSaveChanges}>{t("saveChanges")}</Button>
+            </div>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       {/* Add Status Dialog */}
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>{t("addNewStatus")}</DialogTitle>
-            <DialogDescription>{t("createNewStatusDescription")}</DialogDescription>
-          </DialogHeader>
-
+      <AlertDialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("addNewStatus")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("enterStatusDetails")}</AlertDialogDescription>
+          </AlertDialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="name">{t("statusName")}</Label>
+              <Label htmlFor="statusName">{t("statusName")}</Label>
               <Input
-                id="name"
+                id="statusName"
                 value={newState.name}
-                onChange={(e) => setNewState({ ...newState, name: e.target.value })}
-                placeholder={t("statusNamePlaceholder")}
-                required
+                onChange={(e) => setNewState((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder={t("enterStatusName")}
               />
             </div>
-
             <div className="space-y-2">
-              <Label htmlFor="color">{t("statusColor")}</Label>
-              <div className="flex gap-2 items-center">
+              <Label htmlFor="statusColor">{t("statusColor")}</Label>
+              <div className="flex items-center gap-2">
                 <Input
-                  id="color"
+                  id="statusColor"
                   type="color"
                   value={newState.color}
-                  onChange={(e) => setNewState({ ...newState, color: e.target.value })}
-                  className="w-12 h-8 p-1"
+                  onChange={(e) => setNewState((prev) => ({ ...prev, color: e.target.value }))}
+                  className="w-12 h-10 p-1"
                 />
                 <Input
+                  type="text"
                   value={newState.color}
-                  onChange={(e) => setNewState({ ...newState, color: e.target.value })}
+                  onChange={(e) => setNewState((prev) => ({ ...prev, color: e.target.value }))}
                   className="flex-1"
                 />
-                <div className="w-8 h-8 rounded-md border" style={{ backgroundColor: newState.color }} />
               </div>
             </div>
-
             <div className="flex items-center space-x-2">
               <Switch
-                id="default"
+                id="isDefault"
                 checked={newState.isDefault}
-                onCheckedChange={(checked) => setNewState({ ...newState, isDefault: checked })}
+                onCheckedChange={(checked) => setNewState((prev) => ({ ...prev, isDefault: checked }))}
               />
-              <Label htmlFor="default">{t("defaultStatus")}</Label>
+              <Label htmlFor="isDefault">{t("makeDefaultStatus")}</Label>
             </div>
           </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-              {t("cancel")}
-            </Button>
-            <Button onClick={handleAddState} disabled={!newState.name.trim()}>
-              {t("addStatus")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleAddState}>{t("add")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Edit Status Dialog */}
-      {editingState && (
-        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>{t("editStatus")}</DialogTitle>
-              <DialogDescription>{t("editStatusDescription")}</DialogDescription>
-            </DialogHeader>
-
+      <AlertDialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("editStatus")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("updateStatusDetails")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {editingState && (
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-name">{t("statusName")}</Label>
+                <Label htmlFor="editStatusName">{t("statusName")}</Label>
                 <Input
-                  id="edit-name"
+                  id="editStatusName"
                   value={editingState.name}
-                  onChange={(e) => setEditingState({ ...editingState, name: e.target.value })}
-                  placeholder={t("statusNamePlaceholder")}
-                  disabled={editingState.isSystem}
-                  required
+                  onChange={(e) => setEditingState((prev) => ({ ...prev!, name: e.target.value }))}
+                  placeholder={t("enterStatusName")}
                 />
               </div>
-
               <div className="space-y-2">
-                <Label htmlFor="edit-color">{t("statusColor")}</Label>
-                <div className="flex gap-2 items-center">
+                <Label htmlFor="editStatusColor">{t("statusColor")}</Label>
+                <div className="flex items-center gap-2">
                   <Input
-                    id="edit-color"
+                    id="editStatusColor"
                     type="color"
                     value={editingState.color}
-                    onChange={(e) => setEditingState({ ...editingState, color: e.target.value })}
-                    className="w-12 h-8 p-1"
+                    onChange={(e) => setEditingState((prev) => ({ ...prev!, color: e.target.value }))}
+                    className="w-12 h-10 p-1"
                   />
                   <Input
+                    type="text"
                     value={editingState.color}
-                    onChange={(e) => setEditingState({ ...editingState, color: e.target.value })}
+                    onChange={(e) => setEditingState((prev) => ({ ...prev!, color: e.target.value }))}
                     className="flex-1"
                   />
-                  <div className="w-8 h-8 rounded-md border" style={{ backgroundColor: editingState.color }} />
                 </div>
               </div>
-
               <div className="flex items-center space-x-2">
                 <Switch
-                  id="edit-default"
+                  id="editIsDefault"
                   checked={editingState.isDefault}
-                  onCheckedChange={(checked) => setEditingState({ ...editingState, isDefault: checked })}
-                  disabled={editingState.isDefault && states.length > 0}
+                  onCheckedChange={(checked) => setEditingState((prev) => ({ ...prev!, isDefault: checked }))}
+                  disabled={editingState.isSystem}
                 />
-                <Label htmlFor="edit-default">{t("defaultStatus")}</Label>
+                <Label htmlFor="editIsDefault">{t("makeDefaultStatus")}</Label>
               </div>
-
-              {editingState.isSystem && (
-                <div className="flex p-3 text-sm items-center gap-2 bg-amber-50 text-amber-800 rounded-md border border-amber-200 dark:bg-amber-950/30 dark:border-amber-900 dark:text-amber-300">
-                  <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                  <p>{t("systemStatusWarning")}</p>
-                </div>
-              )}
             </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleEditState}>{t("save")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-                {t("cancel")}
-              </Button>
-              <Button onClick={handleEditState} disabled={!editingState.name.trim()}>
-                {t("saveChanges")}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Status Confirmation */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("confirmDeleteStatus")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("deleteStatusWarning")}</AlertDialogDescription>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              {t("deleteStatus")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("deleteStatusWarning")}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteState}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {t("deleteStatus")}
+            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={handleDeleteState}>
+              {t("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Dialog>
+    </>
   )
-}
+} 

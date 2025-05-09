@@ -112,9 +112,37 @@ export function analyzeJobDescription(description: string): {
     }
   })
 
+  // Look for specific patterns for years of experience
+  const experienceRegex = /\b(\d+)(?:\+)?\s*(?:to|-)?\s*\d*\s*(?:years?|yrs?)(?:\s+of)?\s+(?:experience|exp)\b/gi
+  const experienceMatches = [...description.matchAll(experienceRegex)]
+
+  experienceMatches.forEach((match) => {
+    if (match[0]) {
+      extractedRequirements.add(normalizeSkillName(match[0]))
+    }
+  })
+
+  // Look for education requirements
+  const educationRegex = /\b(?:bachelor'?s?|master'?s?|phd|doctorate|bs|ms|ba|mba|degree)\s+(?:in|of)?\s+[a-z\s]+\b/gi
+  const educationMatches = [...description.matchAll(educationRegex)]
+
+  educationMatches.forEach((match) => {
+    if (match[0]) {
+      extractedRequirements.add(normalizeSkillName(match[0]))
+    }
+  })
+
   return {
     technicalSkills: Array.from(extractedTechnicalSkills),
     softSkills: Array.from(extractedSoftSkills),
     requirements: Array.from(extractedRequirements),
   }
+}
+
+// Function to extract keywords in real-time as the user types
+export function extractKeywordsFromText(text: string): string[] {
+  if (!text || text.length < 10) return []
+
+  const { technicalSkills, softSkills, requirements } = analyzeJobDescription(text)
+  return [...technicalSkills, ...softSkills, ...requirements]
 }

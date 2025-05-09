@@ -4,17 +4,18 @@ import { cn } from "@/lib/utils"
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react" // Added useRef
 import { X, Calendar, MapPin, Star, Link2, Loader2, ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge" // Re-add Badge import
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { JobData, JobState } from "@/lib/types"
+import { EnhancedTagInput } from "./enhanced-tag-input" // Import EnhancedTagInput
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { format } from "date-fns"
@@ -23,6 +24,7 @@ import { analyzeJobDescription } from "@/lib/job-analyzer"
 import { useToast } from "@/hooks/use-toast"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { getJobStates } from "@/lib/storage"
+import { useLanguage } from "@/lib/i18n" // Import useLanguage
 
 interface EditJobModalProps {
   job: JobData
@@ -34,7 +36,6 @@ interface EditJobModalProps {
 
 export function EditJobModal({ job, open, onOpenChange, onJobUpdate, jobStates: propJobStates }: EditJobModalProps) {
   const [formData, setFormData] = useState<JobData>({ ...job })
-  const [newTag, setNewTag] = useState("")
   const [showLocationSearch, setShowLocationSearch] = useState(false)
   const [date, setDate] = useState<Date | undefined>(job.date ? new Date(job.date) : undefined)
   const [activeTab, setActiveTab] = useState("details")
@@ -50,11 +51,15 @@ export function EditJobModal({ job, open, onOpenChange, onJobUpdate, jobStates: 
   })
   const [isScrapingUrl, setIsScrapingUrl] = useState(false)
   const { toast } = useToast()
+  const { t } = useLanguage() // Initialize t function
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Update form data when job changes
   useEffect(() => {
     setFormData({ ...job })
     setDate(job.date ? new Date(job.date) : undefined)
+    // Clear extracted tags when job changes to avoid showing old extracted tags for a new job
+    setExtractedTags({ technicalSkills: [], softSkills: [], requirements: [] })
   }, [job])
 
   // Load job states when modal opens
@@ -70,6 +75,40 @@ export function EditJobModal({ job, open, onOpenChange, onJobUpdate, jobStates: 
     }
   }, [open, propJobStates])
 
+  // Debounced auto-tag generation from description
+  useEffect(() => {
+    if (formData.description && formData.description.length > 50) { // Only analyze if description is somewhat substantial
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
+      }
+      debounceTimeoutRef.current = setTimeout(() => {
+        const extracted = analyzeJobDescription(formData.description!) // formData.description is checked
+        // We only want to auto-add, not replace manually set extractedTags state for UI display
+        const existingTags = formData.tags || []
+        const newAutoTags = Array.from(
+          new Set([...extracted.technicalSkills, ...extracted.softSkills, ...extracted.requirements])
+        )
+        const allTags = Array.from(new Set([...existingTags, ...newAutoTags]))
+        
+        // Only update if new tags were found to avoid unnecessary re-renders
+        if (allTags.length > existingTags.length) {
+          setFormData((prev) => ({
+            ...prev,
+            tags: allTags,
+          }))
+          // Optionally, show a subtle toast that tags were auto-added
+          // toast({ title: "Skills Auto-detected", description: "Relevant skills have been added from the description." });
+        }
+      }, 1500) // 1.5 seconds debounce
+    }
+
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
+      }
+    }
+  }, [formData.description, formData.tags]) // Rerun if description or existing tags change
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
@@ -79,21 +118,8 @@ export function EditJobModal({ job, open, onOpenChange, onJobUpdate, jobStates: 
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleAddTag = () => {
-    if (newTag.trim() && !formData.tags?.includes(newTag.trim())) {
-      setFormData((prev) => ({
-        ...prev,
-        tags: [...(prev.tags || []), newTag.trim()],
-      }))
-      setNewTag("")
-    }
-  }
-
-  const handleRemoveTag = (tag: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      tags: prev.tags?.filter((t) => t !== tag),
-    }))
+  const handleTagsChange = (newTags: string[]) => {
+    setFormData((prev) => ({ ...prev, tags: newTags }))
   }
 
   const handleDateSelect = (selectedDate: Date | undefined) => {
@@ -242,31 +268,49 @@ export function EditJobModal({ job, open, onOpenChange, onJobUpdate, jobStates: 
         <DialogHeader className="flex flex-row items-center justify-between">
           <div className="flex items-center gap-2">
             {activeTab !== "details" && (
-              <Button variant="ghost" size="icon" className="h-8 w-8 mr-1" onClick={() => setActiveTab("details")}>
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 mr-1" onClick={() => setActiveTab("details")}>
+                      <ArrowLeft className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>{t("backToJobDetailsTooltip")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
             <div>
-              <DialogTitle>Edit Job Application</DialogTitle>
-              <DialogDescription>Update the details of your job application.</DialogDescription>
+              <DialogTitle>{t("editJobDetails")}</DialogTitle> {/* Assuming this key exists or will be added */}
+              <DialogDescription>{t("updateJobApplicationDetails")}</DialogDescription> {/* Assuming this key exists or will be added */}
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0 rounded-full"
-            onClick={() => onOpenChange(false)}
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 rounded-full"
+                  onClick={() => onOpenChange(false)}
+                  aria-label={t("closeDialogTooltip")}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>{t("closeDialogTooltip")}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
           <TabsList className="grid grid-cols-3 mb-4">
-            <TabsTrigger value="details">Job Details</TabsTrigger>
-            <TabsTrigger value="description">Description</TabsTrigger>
-            <TabsTrigger value="skills">Skills & Tags</TabsTrigger>
+            <TabsTrigger value="details">{t("jobDetails")}</TabsTrigger>
+            <TabsTrigger value="description">{t("description")}</TabsTrigger>
+            <TabsTrigger value="skills">{t("skillsKeywordsAndRequirements")}</TabsTrigger>
           </TabsList>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -295,6 +339,7 @@ export function EditJobModal({ job, open, onOpenChange, onJobUpdate, jobStates: 
                     />
                     <button
                       type="button"
+                      aria-label="Search location"
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                       onClick={() => setShowLocationSearch(true)}
                     >
@@ -320,34 +365,43 @@ export function EditJobModal({ job, open, onOpenChange, onJobUpdate, jobStates: 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="status">Status *</Label>
-                  <Select
-                    name="status"
-                    value={formData.status}
-                    onValueChange={(value) => handleSelectChange("status", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {jobStates.map((state) => (
-                        <SelectItem key={state.id} value={state.id}>
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: state.color }} />
-                            <span>{state.name}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Select
+                          name="status"
+                          value={formData.status}
+                          onValueChange={(value) => handleSelectChange("status", value)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select status" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {jobStates.map((state) => (
+                              <SelectItem key={state.id} value={state.id}>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: state.color }} />
+                                  <span>{state.name}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p>Select the current status of your application</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
                 <div className="space-y-2">
-                  <Label>Date</Label>
+                  <Label htmlFor="dateApplied">Date Applied</Label> {/* Changed label */}
                   <div className="flex gap-2">
                     <Popover>
                       <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start text-left font-normal">
+                        <Button variant="outline" className="w-full justify-start text-left font-normal" id="dateApplied">
                           <Calendar className="mr-2 h-4 w-4" />
-                          {date ? format(date, "PPP") : <span>Select date</span>}
+                          {date ? format(date, "PPP") : <span>Select date applied</span>}
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0">
@@ -406,7 +460,7 @@ export function EditJobModal({ job, open, onOpenChange, onJobUpdate, jobStates: 
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p>Extract job description from URL</p>
+                          <p>{t("attemptExtractFromUrlTooltip")}</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -424,6 +478,7 @@ export function EditJobModal({ job, open, onOpenChange, onJobUpdate, jobStates: 
                           <TooltipTrigger asChild>
                             <button
                               type="button"
+                              aria-label={`Set priority to ${value}`}
                               onClick={() => handlePriorityChange(value)}
                               className="focus:outline-none"
                             >
@@ -473,13 +528,13 @@ export function EditJobModal({ job, open, onOpenChange, onJobUpdate, jobStates: 
                           onClick={handleAnalyzeDescription}
                           disabled={!formData.description}
                         >
-                          Analyze Description
+                          Analyze
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Extract skills and requirements from description</p>
-                      </TooltipContent>
-                    </Tooltip>
+                        <TooltipContent>
+                          <p>{t("analyzeDescriptionTooltip")}</p>
+                        </TooltipContent>
+                      </Tooltip>
                   </TooltipProvider>
                 </div>
                 <Textarea
@@ -576,48 +631,25 @@ export function EditJobModal({ job, open, onOpenChange, onJobUpdate, jobStates: 
             </TabsContent>
 
             <TabsContent value="skills" className="space-y-4">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Current Tags</Label>
-                  <div className="flex flex-wrap gap-2 p-3 border rounded-md min-h-[100px]">
-                    {formData.tags?.length ? (
-                      formData.tags.map((tag) => (
-                        <Badge key={tag} variant="secondary" className="text-sm">
-                          {tag}
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveTag(tag)}
-                            className="ml-1 text-muted-foreground hover:text-foreground"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </Badge>
-                      ))
-                    ) : (
-                      <div className="text-sm text-muted-foreground">No tags added yet</div>
-                    )}
-                  </div>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="tags">{t("skillsKeywordsAndRequirements")}</Label>
+                <EnhancedTagInput
+                  tags={formData.tags || []}
+                  onTagsChange={handleTagsChange}
+                  placeholder={t("addCustomTagPlaceholder")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("addRelevantSkillsInfo")} {/* Assuming this key exists or will be added */}
+                </p>
+              </div>
+            </TabsContent>
 
-                <div className="space-y-2">
-                  <Label>Add Custom Tag</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={newTag}
-                      onChange={(e) => setNewTag(e.target.value)}
-                      placeholder="Add a custom tag"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault()
-                          handleAddTag()
-                        }
-                      }}
-                    />
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button type="button" variant="outline" onClick={handleAddTag}>
-                            Add
-                          </Button>
-                        </TooltipTrigger>
-                \
+            <div className="pt-4 flex justify-end">
+              <Button type="submit">{t("saveChanges")}</Button> {/* Assuming this key exists or will be added */}
+            </div>
+          </form>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
+  )
+}

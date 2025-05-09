@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Edit, Trash2, ExternalLink, Star, ChevronDown, MapPin, Calendar, DollarSign } from "lucide-react"
 import type { JobData, ColumnType, JobState } from "@/lib/types"
-import { EditJobModal } from "./edit-job-modal"
 import { cn } from "@/lib/utils"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -17,23 +16,10 @@ interface JobTableProps {
   onJobUpdate: (updatedJob: JobData) => void
   onJobDelete: (jobId: string) => void
   onStatusChange: (jobId: string, status: ColumnType) => void
+  onJobEdit?: (job: JobData) => void
 }
 
-export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusChange }: JobTableProps) {
-  const [editingJob, setEditingJob] = useState<JobData | null>(null)
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-
-  const handleEditClick = (job: JobData) => {
-    setEditingJob(job)
-    setIsEditModalOpen(true)
-  }
-
-  const handleDeleteClick = (jobId: string) => {
-    if (confirm("Are you sure you want to delete this job?")) {
-      onJobDelete(jobId)
-    }
-  }
-
+export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusChange, onJobEdit }: JobTableProps) {
   const getStateColor = (stateId: string): string => {
     const state = jobStates.find((s) => s.id === stateId)
     return state?.color || "#3b82f6"
@@ -52,6 +38,12 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
       "bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800",
     flexible:
       "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800",
+  }
+
+  const handleDeleteClick = (jobId: string) => {
+    if (confirm("Are you sure you want to delete this job?")) {
+      onJobDelete(jobId)
+    }
   }
 
   return (
@@ -204,7 +196,7 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8"
-                              onClick={() => handleEditClick(job)}
+                              onClick={() => onJobEdit?.(job)}
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
@@ -260,16 +252,6 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
           </TableBody>
         </Table>
       </div>
-
-      {editingJob && (
-        <EditJobModal
-          job={editingJob}
-          open={isEditModalOpen}
-          onOpenChange={setIsEditModalOpen}
-          onJobUpdate={onJobUpdate}
-          jobStates={jobStates}
-        />
-      )}
     </>
   )
 }

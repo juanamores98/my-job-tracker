@@ -56,7 +56,7 @@
   "openJobLink": "Open Job Link",
   "searchJobs": "Search jobs...",
   "addJob": "Add Job",
-  "addNewJob": "Add a new job application",
+  "addNewJob": "New Job",
   "addColumn": "Add Column",
   "addNewStatus": "Add New Status",
   "createNewStatusDescription": "Create a new status column for your job applications",
@@ -100,5 +100,16 @@
   "statusOrderUpdated": "Status order has been updated",
   "changesSaved": "Changes Saved",
   "noStatusesDefined": "No statuses defined. Add one to get started.",
-  "systemStatusWarning": "This is a system status. Some properties cannot be modified."
+  "systemStatusWarning": "This is a system status. Some properties cannot be modified.",
+  "addStatusColumn": "Add Status",
+  "manageStatusColumns": "Manage Status",
+  "extractFromUrl": "Extract",
+  "createNewStatusColumn": "Create New Status Column",
+  "reorderRenameAndManageStatusColumns": "Reorder, Rename and Manage Status Columns",
+  "switchToKanbanBoardView": "Switch to Kanban Board View",
+  "switchToTableView": "Switch to Table View",
+  "extractJobDetailsFromUrl": "Extract Job Details from URL",
+  "createNewJobApplication": "Create New Job Application",
+  "exportJobsToJSON": "Export Jobs to JSON",
+  "importJobsFromJSON": "Import Jobs from JSON"
 }

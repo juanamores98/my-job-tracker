@@ -1,7 +1,6 @@
 "use client"
 
-import type React from "react"
-
+import * as React from "react"
 import { createContext, useContext, useState, useEffect } from "react"
 
 // Define available languages
@@ -86,7 +85,7 @@ const defaultLanguageContext: LanguageContextType = {
 export const LanguageContext = createContext<LanguageContextType>(defaultLanguageContext)
 
 // Language provider component
-export function LanguageProvider({ children }: { children: React.ReactNode }) {
+export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState("en")
   const [isClient, setIsClient] = useState(false)
 
@@ -137,7 +136,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     return (langDict as any)[key] || key
   }
 
-  return <LanguageContext.Provider value={{ language, setLanguage, t }}>{children}</LanguageContext.Provider>
+  return React.createElement(LanguageContext.Provider, {
+    value: { language, setLanguage, t },
+    children
+  })
 }
 
 // Hook to use language context

@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+  job-tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - NEXT_PUBLIC_APP_NAME=Job Tracker
+    restart: unless-stopped
