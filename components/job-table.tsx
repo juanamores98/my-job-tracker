@@ -4,11 +4,12 @@ import { useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Edit, Trash2, ExternalLink, Star, ChevronDown, MapPin, Calendar, DollarSign } from "lucide-react"
-import type { JobData, ColumnType, JobState } from "@/lib/types"
+import { Edit, Trash2, ExternalLink, Star, ChevronDown, MapPin, Calendar, DollarSign, Copy, Filter } from "lucide-react"
+import type { JobData, ColumnType, JobState, JobFilter } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { TagBadge } from "./tag-badge"
 
 interface JobTableProps {
   jobs: JobData[]
@@ -17,9 +18,12 @@ interface JobTableProps {
   onJobDelete: (jobId: string) => void
   onStatusChange: (jobId: string, status: ColumnType) => void
   onJobEdit?: (job: JobData) => void
+  onJobDuplicate?: (job: JobData) => void
+  currentStatusFilter?: string[]
+  onStatusFilterChange: (statusId?: string) => void
 }
 
-export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusChange, onJobEdit }: JobTableProps) {
+export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusChange, onJobEdit, onJobDuplicate, currentStatusFilter, onStatusFilterChange }: JobTableProps) {
   const getStateColor = (stateId: string): string => {
     const state = jobStates.find((s) => s.id === stateId)
     return state?.color || "#3b82f6"
@@ -46,8 +50,63 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
     }
   }
 
+  // Format date to be more readable
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return ""
+    const date = new Date(dateString)
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(date)
+  }
+
   return (
     <>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-semibold">Job Applications</h2>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="ml-auto">
+              <Filter className="mr-2 h-4 w-4" />
+              {currentStatusFilter && currentStatusFilter.length > 0
+                ? `Status: ${getStateName(currentStatusFilter[0])}`
+                : "Filter by Status"}
+              <ChevronDown className="ml-2 h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => onStatusFilterChange(undefined)}
+              className={(!currentStatusFilter || currentStatusFilter.length === 0) ? "bg-accent" : ""}
+            >
+              All Statuses
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {jobStates.map(state => (
+              <DropdownMenuItem
+                key={state.id}
+                onClick={() => onStatusFilterChange(state.id)}
+                className={(currentStatusFilter && currentStatusFilter.includes(state.id)) ? "bg-accent" : ""}
+              >
+                <Badge
+                  className="px-2 py-0.5 text-xs font-medium mr-2 flex items-center gap-1.5"
+                  style={{
+                    backgroundColor: `${state.color}20`,
+                    color: state.color,
+                    borderColor: `${state.color}40`,
+                  }}
+                >
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: state.color }} />
+                  {state.name}
+                </Badge>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -71,10 +130,10 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
               </TableRow>
             ) : (
               jobs.map((job) => (
-                <TableRow key={job.id}>
+                <TableRow key={job.id} className="group hover:bg-card hover:shadow-sm border-b">
                   <TableCell className="font-medium">
                     <div className="flex flex-col">
-                      <span>{job.company}</span>
+                      <span className="font-bold text-base line-clamp-1 group-hover:text-primary transition-colors duration-200">{job.company}</span>
                       {job.salary && (
                         <span className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                           <DollarSign className="h-3 w-3" /> {job.salary}
@@ -84,18 +143,27 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col">
-                      <span>{job.position}</span>
+                      <span className="font-medium">{job.position}</span>
                       {job.tags && job.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1">
-                          {job.tags.slice(0, 2).map((tag, index) => (
-                            <Badge key={index} variant="secondary" className="text-xs px-1 py-0 h-5">
-                              {tag}
-                            </Badge>
-                          ))}
+                          {job.tags.slice(0, 2).map((tag, index) => {
+                            const gradients: Array<"blue" | "green" | "orange"> = ["blue", "green", "orange"]
+                            const gradient = gradients[index % gradients.length]
+                            return (
+                              <TagBadge
+                                key={index}
+                                tag={tag}
+                                gradient={gradient}
+                                className="h-5 text-xs"
+                              />
+                            )
+                          })}
                           {job.tags.length > 2 && (
-                            <Badge variant="outline" className="text-xs px-1 py-0 h-5">
-                              +{job.tags.length - 2}
-                            </Badge>
+                            <TagBadge
+                              tag={`+${job.tags.length - 2}`}
+                              gradient="default"
+                              className="h-5 text-xs border-dashed"
+                            />
                           )}
                         </div>
                       )}
@@ -159,7 +227,7 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
                     {job.date ? (
                       <div className="flex items-center gap-1 text-sm">
                         <Calendar className="h-3 w-3 text-muted-foreground" />
-                        <span>{job.date}</span>
+                        <span>{formatDate(job.date)}</span>
                       </div>
                     ) : (
                       <span className="text-muted-foreground text-sm">—</span>
@@ -172,7 +240,7 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
                           key={i}
                           className={cn(
                             "h-4 w-4",
-                            i < (job.priority || 0) ? "text-yellow-400 fill-yellow-400" : "text-gray-300",
+                            i < (job.priority || 0) ? "text-yellow-400 fill-yellow-400" : "text-gray-300 dark:text-gray-600",
                           )}
                         />
                       ))}
@@ -188,7 +256,7 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
                     )}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -201,7 +269,7 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
                               <Edit className="h-4 w-4" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>
+                          <TooltipContent side="top">
                             <p>Edit job</p>
                           </TooltipContent>
                         </Tooltip>
@@ -213,13 +281,31 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-8 w-8 text-red-600 hover:text-red-700"
+                              className="h-8 w-8"
+                              onClick={() => onJobDuplicate?.(job)}
+                            >
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <p>Duplicate job</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive"
                               onClick={() => handleDeleteClick(job.id)}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>
+                          <TooltipContent side="top">
                             <p>Delete job</p>
                           </TooltipContent>
                         </Tooltip>
@@ -229,17 +315,17 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-primary"
-                                onClick={() => window.open(job.url, "_blank")}
+                              <a
+                                href={job.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="rounded p-1 text-primary hover:bg-primary/10 inline-flex items-center"
                               >
                                 <ExternalLink className="h-4 w-4" />
-                              </Button>
+                              </a>
                             </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Open job URL</p>
+                            <TooltipContent side="top">
+                              <p>View job posting</p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>

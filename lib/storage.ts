@@ -1,5 +1,5 @@
-import type { JobData, ResumeData, CoverLetterData, UserProfile, UserSettings, JobStatistics, JobState } from "./types"
-import { initialJobs } from "./data"
+import type { JobData, ResumeData, CoverLetterData, UserProfile, UserSettings, JobStatistics, JobState, WorkMode } from "./types"
+import { initialJobs, defaultJobStates } from "./data"
 
 // Keys for localStorage
 const STORAGE_KEYS = {
@@ -11,18 +11,6 @@ const STORAGE_KEYS = {
   JOB_STATISTICS: "job-tracker-statistics",
   JOB_STATES: "job-tracker-job-states",
 }
-
-// Default job states
-export const DEFAULT_JOB_STATES: JobState[] = [
-  { id: "wishlist", name: "Wishlist", color: "#3b82f6", order: 0, isDefault: true, isSystem: true },
-  { id: "bookmarked", name: "Bookmarked", color: "#8b5cf6", order: 1, isSystem: true },
-  { id: "applying", name: "Applying", color: "#ec4899", order: 2, isSystem: true },
-  { id: "applied", name: "Applied", color: "#6366f1", order: 3, isSystem: true },
-  { id: "interview", name: "Interview", color: "#f59e0b", order: 4, isSystem: true },
-  { id: "offer", name: "Offer", color: "#10b981", order: 5, isSystem: true },
-  { id: "accepted", name: "Accepted", color: "#059669", order: 6, isSystem: true },
-  { id: "rejected", name: "Rejected", color: "#ef4444", order: 7, isSystem: true },
-]
 
 // Jobs
 export const getJobs = (): JobData[] => {
@@ -60,10 +48,10 @@ export const deleteJob = (jobId: string): JobData[] => {
 
 // Job States
 export const getJobStates = (): JobState[] => {
-  if (typeof window === "undefined") return DEFAULT_JOB_STATES
+  if (typeof window === "undefined") return defaultJobStates
 
   const storedStates = localStorage.getItem(STORAGE_KEYS.JOB_STATES)
-  return storedStates ? JSON.parse(storedStates) : DEFAULT_JOB_STATES
+  return storedStates ? JSON.parse(storedStates) : defaultJobStates
 }
 
 export const saveJobStates = (states: JobState[]): void => {
@@ -248,10 +236,10 @@ export const saveUserProfile = (profile: UserProfile): void => {
 export const getUserSettings = (): UserSettings => {
   if (typeof window === "undefined") {
     return {
-      theme: "system",
+      theme: "system" as "light" | "dark" | "system",
       compactView: false,
       animations: true,
-      defaultView: "kanban",
+      defaultView: "kanban" as "kanban" | "table" | "calendar",
       notifications: {
         email: {
           interviewReminders: true,
@@ -269,21 +257,21 @@ export const getUserSettings = (): UserSettings => {
       },
       language: "en",
       dateFormat: "MM/DD/YYYY",
-      defaultJobView: "kanban",
+      defaultJobView: "kanban" as "kanban" | "table" | "calendar",
       defaultSortField: "date",
-      defaultSortOrder: "desc",
+      defaultSortOrder: "desc" as "asc" | "desc",
       defaultFilters: {},
-      jobStates: DEFAULT_JOB_STATES,
+      jobStates: defaultJobStates,
     }
   }
 
   const storedSettings = localStorage.getItem(STORAGE_KEYS.USER_SETTINGS)
   if (!storedSettings) {
     const defaultSettings = {
-      theme: "system",
+      theme: "system" as "light" | "dark" | "system",
       compactView: false,
       animations: true,
-      defaultView: "kanban",
+      defaultView: "kanban" as "kanban" | "table" | "calendar",
       notifications: {
         email: {
           interviewReminders: true,
@@ -301,11 +289,11 @@ export const getUserSettings = (): UserSettings => {
       },
       language: "en",
       dateFormat: "MM/DD/YYYY",
-      defaultJobView: "kanban",
+      defaultJobView: "kanban" as "kanban" | "table" | "calendar",
       defaultSortField: "date",
-      defaultSortOrder: "desc",
+      defaultSortOrder: "desc" as "asc" | "desc",
       defaultFilters: {},
-      jobStates: DEFAULT_JOB_STATES,
+      jobStates: defaultJobStates,
     }
     localStorage.setItem(STORAGE_KEYS.USER_SETTINGS, JSON.stringify(defaultSettings))
     return defaultSettings
@@ -314,8 +302,8 @@ export const getUserSettings = (): UserSettings => {
   const settings = JSON.parse(storedSettings)
 
   // Ensure job states are present
-  if (!settings.jobStates) {
-    settings.jobStates = DEFAULT_JOB_STATES
+  if (!settings.jobStates || settings.jobStates.length === 0) {
+    settings.jobStates = defaultJobStates
     localStorage.setItem(STORAGE_KEYS.USER_SETTINGS, JSON.stringify(settings))
   }
 
@@ -486,7 +474,7 @@ const calculateStatistics = (jobs: JobData[]): JobStatistics => {
       })
     }
 
-    job.tags?.forEach((tag) => {
+    job.skills?.forEach((tag) => {
       const keyword = tag.toLowerCase()
       keywords[keyword] = (keywords[keyword] || 0) + 1
     })
@@ -605,8 +593,14 @@ const calculateStatistics = (jobs: JobData[]): JobStatistics => {
 
 // Export data in different formats
 export const exportToJSON = (): string => {
+  // Import the prepareJobsForExport function
+  const { prepareJobsForExport } = require('./migration');
+
+  // Get jobs and ensure they have proper field order and structure
+  const jobs = prepareJobsForExport(getJobs());
+
   const data = {
-    jobs: getJobs(),
+    jobs: jobs,
     resumes: getResumes(),
     coverLetters: getCoverLetters(),
     userProfile: getUserProfile(),
@@ -619,29 +613,35 @@ export const exportToJSON = (): string => {
 }
 
 export const exportToCSV = (): string => {
-  const jobs = getJobs()
+  // Import the prepareJobsForExport function
+  const { prepareJobsForExport } = require('./migration');
 
-  // CSV header
-  let csv = "ID,Company,Position,Location,Salary,Date,Status,Notes,URL,Priority,Tags,Description\n"
+  // Get jobs and ensure they have proper work mode and location
+  const jobs = prepareJobsForExport(getJobs());
+
+  // CSV header with all fields including the new ones
+  let csv = "ID,Company,Position,Location,WorkMode,SalaryMin,SalaryMax,SalaryCurrency,Date,ApplyDate,Status,Notes,URL,Priority,Skills,SoftSkills,Requirements,Description\n"
 
   // Add each job as a row
-  jobs.forEach((job) => {
+  jobs.forEach((job: JobData) => {
     const row = [
       job.id,
       `"${job.company?.replace(/"/g, '""') || ""}"`,
       `"${job.position?.replace(/"/g, '""') || ""}"`,
       job.location ? `"${job.location.replace(/"/g, '""')}"` : "",
-      job.salary
-        ? `  '""') || ""}"\`,
-      job.location ? \`"${job.location.replace(/"/g, '""')}"`
-        : "",
-      job.salary ? `"${job.salary.replace(/"/g, '""')}"` : "",
+      job.workMode || "",
+      job.salaryMin || "",
+      job.salaryMax || "",
+      job.salaryCurrency || "",
       job.date || "",
+      job.applyDate || "",
       job.status,
       job.notes ? `"${job.notes.replace(/"/g, '""')}"` : "",
       job.url ? `"${job.url.replace(/"/g, '""')}"` : "",
       job.priority || "",
-      job.tags ? `"${job.tags.join(",").replace(/"/g, '""')}"` : "",
+      job.skills ? `"${job.skills.join(",").replace(/"/g, '""')}"` : job.tags ? `"${job.tags.join(",").replace(/"/g, '""')}"` : "",
+      job.softSkills ? `"${job.softSkills.join(",").replace(/"/g, '""')}"` : "",
+      job.requirements ? `"${job.requirements.join(",").replace(/"/g, '""')}"` : "",
       job.description ? `"${job.description.replace(/"/g, '""')}"` : "",
     ]
 
@@ -656,7 +656,18 @@ export const importFromJSON = (jsonData: string): void => {
   try {
     const data = JSON.parse(jsonData)
 
-    if (data.jobs) saveJobs(data.jobs)
+    // Import the migration function
+    const { migrateJobData } = require('./migration');
+
+    // Process jobs to ensure they use the new format
+    if (data.jobs) {
+      // First save the imported jobs
+      saveJobs(data.jobs);
+
+      // Then run the migration to fix any issues with location, work mode, and skill categories
+      migrateJobData();
+    }
+
     if (data.resumes) saveResumes(data.resumes)
     if (data.coverLetters) saveCoverLetters(data.coverLetters)
     if (data.userProfile) saveUserProfile(data.userProfile)
@@ -669,6 +680,82 @@ export const importFromJSON = (jsonData: string): void => {
   }
 }
 
+// Helper function to parse salary string into structured format
+export const parseSalaryString = (salaryStr: string): Partial<JobData> => {
+  try {
+    // Remove currency symbols and other non-numeric characters
+    const cleanStr = salaryStr.replace(/[^0-9\-\s\.k]/gi, '');
+
+    // Check for salary range format (e.g., "120k - 150k" or "120,000 - 150,000")
+    const rangeMatch = cleanStr.match(/(\d+\.?\d*k?)\s*-\s*(\d+\.?\d*k?)/i);
+
+    if (rangeMatch) {
+      const min = parseKValue(rangeMatch[1]);
+      const max = parseKValue(rangeMatch[2]);
+
+      // Determine currency from original string
+      const currency = determineCurrency(salaryStr);
+
+      return {
+        salaryMin: min,
+        salaryMax: max,
+        salaryCurrency: currency
+      };
+    }
+
+    // Check for single value with plus (e.g., "120k+")
+    const plusMatch = cleanStr.match(/(\d+\.?\d*k?)\+/i);
+    if (plusMatch) {
+      const min = parseKValue(plusMatch[1]);
+      const currency = determineCurrency(salaryStr);
+
+      return {
+        salaryMin: min,
+        salaryCurrency: currency
+      };
+    }
+
+    // Check for single value (e.g., "120k")
+    const singleMatch = cleanStr.match(/(\d+\.?\d*k?)/i);
+    if (singleMatch) {
+      const value = parseKValue(singleMatch[1]);
+      const currency = determineCurrency(salaryStr);
+
+      return {
+        salaryMin: value,
+        salaryMax: value,
+        salaryCurrency: currency
+      };
+    }
+
+    // Default return if no pattern matches
+    return {};
+  } catch (e) {
+    console.error("Error parsing salary string:", e);
+    return {};
+  }
+}
+
+// Helper to parse values with 'k' notation (e.g., 120k -> 120000)
+const parseKValue = (value: string): number => {
+  if (value.toLowerCase().includes('k')) {
+    return parseFloat(value.toLowerCase().replace('k', '')) * 1000;
+  }
+  return parseFloat(value);
+}
+
+// Helper to determine currency from salary string
+const determineCurrency = (salaryStr: string): string => {
+  if (salaryStr.includes('$') || salaryStr.includes('USD')) return 'USD';
+  if (salaryStr.includes('€') || salaryStr.includes('EUR')) return 'EUR';
+  if (salaryStr.includes('£') || salaryStr.includes('GBP')) return 'GBP';
+  if (salaryStr.includes('¥') || salaryStr.includes('JPY')) return 'JPY';
+  if (salaryStr.includes('₹') || salaryStr.includes('INR')) return 'INR';
+  if (salaryStr.includes('C$') || salaryStr.includes('CAD')) return 'CAD';
+  if (salaryStr.includes('A$') || salaryStr.includes('AUD')) return 'AUD';
+  return 'USD'; // Default to USD
+}
+
 // Import from CSV
 export const importFromCSV = (csvData: string): void => {
   try {
@@ -676,7 +763,10 @@ export const importFromCSV = (csvData: string): void => {
     const rows = csvData.split("\n")
 
     // Extract headers (first row)
-    const headers = rows[0].split(",")
+    const headers = rows[0].toLowerCase().split(",")
+
+    // Determine if this is the new format or old format
+    const isNewFormat = headers.includes("workmode") || headers.includes("salarymin") || headers.includes("salarymax")
 
     // Process each data row
     const jobs: JobData[] = []
@@ -701,24 +791,106 @@ export const importFromCSV = (csvData: string): void => {
       }
       values.push(currentValue) // Add the last value
 
-      // Create job object
-      const job: Partial<JobData> = {
-        id: values[0] || Date.now().toString(),
-        company: values[1]?.replace(/^"|"$/g, "") || "",
-        position: values[2]?.replace(/^"|"$/g, "") || "",
-        location: values[3]?.replace(/^"|"$/g, "") || undefined,
-        salary: values[4]?.replace(/^"|"$/g, "") || undefined,
-        date: values[5] || undefined,
-        status: (values[6] as any) || "wishlist",
-        notes: values[7]?.replace(/^"|"$/g, "") || undefined,
-        url: values[8]?.replace(/^"|"$/g, "") || undefined,
-        priority: values[9] ? Number.parseInt(values[9]) : undefined,
-        tags:
-          values[10]
-            ?.replace(/^"|"$/g, "")
-            .split(",")
-            .map((tag) => tag.trim()) || [],
-        description: values[11]?.replace(/^"|"$/g, "") || undefined,
+      // Create job object based on the detected format
+      let job: Partial<JobData>
+
+      if (isNewFormat) {
+        // Check if this is the newest format with separate skill categories
+        const hasSkillCategories = headers.includes("softskills") || headers.includes("requirements");
+
+        if (hasSkillCategories) {
+          // Newest format with separate skill categories
+          job = {
+            id: values[0] || Date.now().toString(),
+            company: values[1]?.replace(/^"|"$/g, "") || "",
+            position: values[2]?.replace(/^"|"$/g, "") || "",
+            location: values[3]?.replace(/^"|"$/g, "") || undefined,
+            workMode: values[4] as WorkMode || undefined,
+            salaryMin: values[5] ? Number(values[5]) : undefined,
+            salaryMax: values[6] ? Number(values[6]) : undefined,
+            salaryCurrency: values[7] || undefined,
+            date: values[8] || undefined,
+            applyDate: values[9] || undefined,
+            status: (values[10] as any) || "wishlist",
+            notes: values[11]?.replace(/^"|"$/g, "") || undefined,
+            url: values[12]?.replace(/^"|"$/g, "") || undefined,
+            priority: values[13] ? Number.parseInt(values[13]) : undefined,
+            // Technical skills
+            skills:
+              values[14]
+                ?.replace(/^"|"$/g, "")
+                .split(",")
+                .map((tag) => tag.trim()) || [],
+            softSkills:
+              values[15]
+                ?.replace(/^"|"$/g, "")
+                .split(",")
+                .map((tag) => tag.trim()) || [],
+            requirements:
+              values[16]
+                ?.replace(/^"|"$/g, "")
+                .split(",")
+                .map((tag) => tag.trim()) || [],
+            description: values[17]?.replace(/^"|"$/g, "") || undefined,
+          }
+        } else {
+          // New format with separate location and work modality but without skill categories
+          job = {
+            id: values[0] || Date.now().toString(),
+            company: values[1]?.replace(/^"|"$/g, "") || "",
+            position: values[2]?.replace(/^"|"$/g, "") || "",
+            location: values[3]?.replace(/^"|"$/g, "") || undefined,
+            workMode: values[4] as WorkMode || undefined,
+            salaryMin: values[5] ? Number(values[5]) : undefined,
+            salaryMax: values[6] ? Number(values[6]) : undefined,
+            salaryCurrency: values[7] || undefined,
+            date: values[8] || undefined,
+            applyDate: values[9] || undefined,
+            status: (values[10] as any) || "wishlist",
+            notes: values[11]?.replace(/^"|"$/g, "") || undefined,
+            url: values[12]?.replace(/^"|"$/g, "") || undefined,
+            priority: values[13] ? Number.parseInt(values[13]) : undefined,
+            // Technical skills
+            skills:
+              values[14]
+                ?.replace(/^"|"$/g, "")
+                .split(",")
+                .map((tag) => tag.trim()) || [],
+            description: values[15]?.replace(/^"|"$/g, "") || undefined,
+            // Initialize empty arrays for the new skill categories
+            softSkills: [],
+            requirements: []
+          }
+        }
+      } else {
+        // Old format with combined location/work modality and single salary field
+        job = {
+          id: values[0] || Date.now().toString(),
+          company: values[1]?.replace(/^"|"$/g, "") || "",
+          position: values[2]?.replace(/^"|"$/g, "") || "",
+          location: values[3]?.replace(/^"|"$/g, "") || undefined,
+          salary: values[4]?.replace(/^"|"$/g, "") || undefined,
+          date: values[5] || undefined,
+          status: (values[6] as any) || "wishlist",
+          notes: values[7]?.replace(/^"|"$/g, "") || undefined,
+          url: values[8]?.replace(/^"|"$/g, "") || undefined,
+          priority: values[9] ? Number.parseInt(values[9]) : undefined,
+          // Technical skills
+          skills:
+            values[10]
+              ?.replace(/^"|"$/g, "")
+              .split(",")
+              .map((tag) => tag.trim()) || [],
+          description: values[11]?.replace(/^"|"$/g, "") || undefined,
+
+          // Set default work mode based on location if possible
+          workMode: values[3]?.toLowerCase().includes("remote") ? "remote" :
+                   values[3]?.toLowerCase().includes("hybrid") ? "hybrid" : undefined,
+
+          // Initialize empty arrays for the new skill categories
+          softSkills: [],
+          requirements: []
+        }
       }
 
       jobs.push(job as JobData)
@@ -726,6 +898,10 @@ export const importFromCSV = (csvData: string): void => {
 
     // Save the imported jobs
     saveJobs([...getJobs(), ...jobs])
+
+    // Import the migration function and run it to fix any issues
+    const { migrateJobData } = require('./migration');
+    migrateJobData();
   } catch (error) {
     console.error("Error importing CSV data:", error)
     throw new Error("Invalid CSV format")

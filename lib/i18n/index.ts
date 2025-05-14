@@ -73,13 +73,13 @@ export const translations = {
 type LanguageContextType = {
   language: string
   setLanguage: (lang: string) => void
-  t: (key: string) => string
+  t: (key: string, interpolations?: Record<string, string | number>) => string // Modified
 }
 
 const defaultLanguageContext: LanguageContextType = {
   language: "en",
   setLanguage: () => {},
-  t: (key: string) => key,
+  t: (key: string, _interpolations?: Record<string, string | number>) => key, // Modified
 }
 
 export const LanguageContext = createContext<LanguageContextType>(defaultLanguageContext)
@@ -129,11 +129,22 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }
 
   // Translation function
-  const t = (key: string): string => {
+  const t = (key: string, interpolations?: Record<string, string | number>): string => {
     if (!isClient) return key // Return key during SSR
 
     const langDict = translations[language as keyof typeof translations] || translations.en
-    return (langDict as any)[key] || key
+    let translatedString = (langDict as any)[key] || key
+
+    if (interpolations) {
+      Object.keys(interpolations).forEach((interpolationKey) => {
+        const value = interpolations[interpolationKey]
+        translatedString = translatedString.replace(
+          new RegExp(`{{${interpolationKey}}}`, "g"),
+          String(value) // Ensure value is a string
+        )
+      })
+    }
+    return translatedString
   }
 
   return React.createElement(LanguageContext.Provider, {

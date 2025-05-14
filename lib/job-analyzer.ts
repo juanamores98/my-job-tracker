@@ -8,7 +8,7 @@ import {
   isValidSkill,
   normalizeSkillName,
   stopwords,
-} from "./skill-categories"
+} from "./skills"
 
 /**
  * Analyzes a job description to extract technical skills, soft skills, and requirements

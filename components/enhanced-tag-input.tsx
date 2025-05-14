@@ -9,30 +9,30 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
-import { technicalSkills, softSkills, requirements } from "@/lib/skill-categories"
-import { useLanguage } from "@/lib/i18n"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import * as skillsData from "@/lib/skills"
+// import { useLanguage } from "@/lib/i18n"
+// import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 // Combine all skills for fast searching
-const allSkills = [...technicalSkills, ...softSkills, ...requirements]
+const allSkills = [...skillsData.technicalSkills, ...skillsData.softSkills, ...skillsData.requirements]
 
 interface EnhancedTagInputProps {
   tags: string[]
   onTagsChange: (tags: string[]) => void
   placeholder?: string
+  suggestions?: string[]
+  allSuggestions?: string[]
 }
 
-export function EnhancedTagInput({ tags, onTagsChange, placeholder = "Add a tag..." }: EnhancedTagInputProps) {
+export function EnhancedTagInput({ tags, onTagsChange, placeholder = "Add a tag...", suggestions, allSuggestions }: EnhancedTagInputProps) {
   const [inputValue, setInputValue] = useState("")
   const [isOpen, setIsOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const { t } = useLanguage()
+  // const { t } = useLanguage() // Uncomment if needed for translations
 
-  // Filter skills based on input value
-  const filteredSkills = allSkills
-    .filter((skill) => skill.toLowerCase().includes(inputValue.toLowerCase()) && !tags.includes(skill))
-    .slice(0, 15) // Limit results
+  // Use provided suggestions or allSuggestions or default to all skills
+  const skillsToUse = suggestions || allSuggestions || allSkills
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && inputValue) {
@@ -59,30 +59,45 @@ export function EnhancedTagInput({ tags, onTagsChange, placeholder = "Add a tag.
     onTagsChange(tags.filter((t) => t !== tag))
   }
 
-  const handleSelectSkill = (skill: string) => {
-    addTag(skill)
-    setIsOpen(false)
-    inputRef.current?.focus()
-  }
+  // Removed unused function
 
-  // Close popover when clicking outside
+  // Control popover visibility based on input
   useEffect(() => {
     if (inputValue === "") {
       setIsOpen(false)
-    } else if (inputValue.length > 1) {
+    } else {
+      // Open the popover as soon as the user starts typing
       setIsOpen(true)
     }
   }, [inputValue])
 
-  // Group tags by category
-  const groupedTags = {
-    technical: tags.filter((tag) => technicalSkills.includes(tag)),
-    soft: tags.filter((tag) => softSkills.includes(tag)),
-    requirements: tags.filter((tag) => requirements.includes(tag)),
-    other: tags.filter(
-      (tag) => !technicalSkills.includes(tag) && !softSkills.includes(tag) && !requirements.includes(tag),
-    ),
-  }
+  // Group tags by category using skillsData.categorizeSkill
+  const groupedTags: Record<string, string[]> = {
+    technical: [],
+    soft: [],
+    requirements: [],
+    other: [],
+  };
+  tags.forEach(tag => {
+    const category = skillsData.categorizeSkill(tag);
+    switch (category) {
+      case "technical":
+        groupedTags.technical.push(tag);
+        break;
+      case "soft":
+        groupedTags.soft.push(tag);
+        break;
+      case "requirement":
+        groupedTags.requirements.push(tag);
+        break;
+      default: // "unknown"
+        groupedTags.other.push(tag);
+        break;
+    }
+  });
+
+  // The old logic based on allSuggestions is no longer needed here
+  // if (allSuggestions) { ... }
 
   const handleAddTag = (tag: string) => {
     const normalizedTag = tag.trim()
@@ -92,9 +107,10 @@ export function EnhancedTagInput({ tags, onTagsChange, placeholder = "Add a tag.
     setInputValue("")
   }
 
-  const filteredSuggestions = allSkills
-    .filter((skill) => skill.toLowerCase().includes(inputValue.toLowerCase()) && !tags.includes(skill))
-    .slice(0, 15)
+  // Get filtered suggestions using skillsData.getSimilarSkills
+  const filteredSuggestions = inputValue.length > 0
+    ? skillsData.getSimilarSkills(inputValue, 20).filter(skill => !tags.includes(skill))
+    : suggestions?.filter(s => !tags.includes(s)).slice(0, 8) || []
 
   return (
     <div className="space-y-2">
@@ -109,10 +125,21 @@ export function EnhancedTagInput({ tags, onTagsChange, placeholder = "Add a tag.
                   const gradients: Array<"blue" | "green" | "orange"> = ["blue", "green", "orange"]
                   // Determine gradient based on category or cycle
                   let gradient: "blue" | "green" | "orange" | "default" = "default"
-                  if (category === "technical") gradient = "blue"
-                  else if (category === "soft") gradient = "green"
-                  else if (category === "requirements") gradient = "orange"
-                  else gradient = gradients[index % gradients.length] // Cycle for 'other'
+                  let isDefaultGradient = true
+
+                  if (category === "technical") {
+                    gradient = "blue"
+                    isDefaultGradient = false
+                  } else if (category === "soft") {
+                    gradient = "green"
+                    isDefaultGradient = false
+                  } else if (category === "requirements") {
+                    gradient = "orange"
+                    isDefaultGradient = false
+                  } else {
+                    gradient = gradients[index % gradients.length] // Cycle for 'other'
+                    isDefaultGradient = false
+                  }
 
                   return (
                     <div key={tag} className="flex items-center">
@@ -122,7 +149,7 @@ export function EnhancedTagInput({ tags, onTagsChange, placeholder = "Add a tag.
                         size="icon"    // This is a valid size
                         className={cn(
                           "h-auto p-[5px] rounded-l-none border border-l-0 hover:bg-destructive/20",
-                          gradient === "default"
+                          isDefaultGradient
                             ? "border-border hover:text-destructive text-muted-foreground"
                             : "border-white/30 hover:text-white text-white/80"
                         )}
@@ -158,40 +185,67 @@ export function EnhancedTagInput({ tags, onTagsChange, placeholder = "Add a tag.
           <PopoverContent className="p-0 w-[--radix-popover-trigger-width]" align="start" side="bottom" sideOffset={5} alignOffset={0}>
             <Command className="rounded-lg border shadow-md">
               <CommandInput
-                placeholder={placeholder || "Add tag..."}
+                placeholder={"Search skills..."} // Generic placeholder
                 value={inputValue}
                 onValueChange={setInputValue}
                 className="h-9"
+                autoFocus
               />
               <CommandList>
                 <CommandEmpty>
                   <div className="py-3 px-4 text-sm text-muted-foreground">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div>No matching tags found. Press Enter to create a new tag.</div>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p>Type a tag name and press Enter to add it</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                    {inputValue.length > 0 ? (
+                      <div className="flex flex-col gap-1">
+                        <div>No matching skills found.</div>
+                        <div className="text-xs">Press Enter to add "{inputValue}" as a custom skill.</div>
+                      </div>
+                    ) : (
+                      <div>Start typing to search for skills...</div>
+                    )}
                   </div>
                 </CommandEmpty>
                 <CommandGroup>
-                  {filteredSuggestions.map((suggestion) => (
-                    <CommandItem
-                      key={suggestion}
-                      value={suggestion}
-                      onSelect={() => {
-                        handleAddTag(suggestion)
-                        setInputValue("")
-                      }}
-                    >
-                      <Check className={cn("mr-2 h-4 w-4", tags.includes(suggestion) ? "opacity-100" : "opacity-0")} />
-                      {suggestion}
-                    </CommandItem>
-                  ))}
+                  {filteredSuggestions.length > 0 && (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                      {filteredSuggestions.length} {filteredSuggestions.length === 1 ? 'result' : 'results'} found
+                    </div>
+                  )}
+                  {filteredSuggestions.map((suggestion) => {
+                    // Determine the category of the suggestion
+                    let category = "";
+                    let categoryColor = "";
+
+                    if (skillsData.technicalSkills.includes(suggestion)) {
+                      category = "Technical";
+                      categoryColor = "text-blue-500";
+                    } else if (skillsData.softSkills.includes(suggestion)) {
+                      category = "Soft Skill";
+                      categoryColor = "text-rose-500";
+                    } else if (skillsData.requirements.includes(suggestion)) {
+                      category = "Requirement";
+                      categoryColor = "text-amber-500";
+                    }
+
+                    return (
+                      <CommandItem
+                        key={suggestion}
+                        value={suggestion}
+                        onSelect={() => {
+                          handleAddTag(suggestion)
+                          setInputValue("")
+                        }}
+                        className="flex items-center justify-between"
+                      >
+                        <div className="flex items-center">
+                          <Check className={cn("mr-2 h-4 w-4", tags.includes(suggestion) ? "opacity-100" : "opacity-0")} />
+                          <span>{suggestion}</span>
+                        </div>
+                        {category && (
+                          <span className={cn("text-xs", categoryColor)}>{category}</span>
+                        )}
+                      </CommandItem>
+                    );
+                  })}
                 </CommandGroup>
               </CommandList>
             </Command>

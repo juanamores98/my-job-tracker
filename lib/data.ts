@@ -1,45 +1,70 @@
-import type { JobData, ResumeData, CoverLetterData } from "./types"
+import type { JobData, ResumeData, CoverLetterData, JobState } from "./types"
+
+export const defaultJobStates: JobState[] = [
+  { id: "wishlist", name: "Wishlist", color: "#4A90E2", order: 0, isDefault: true, isSystem: true }, // Blue
+  { id: "applied", name: "Applied", color: "#F5A623", order: 1, isSystem: true },  // Orange
+  { id: "interview", name: "Interview", color: "#7ED321", order: 2, isSystem: true }, // Green
+  { id: "offer", name: "Offer", color: "#BD10E0", order: 3, isSystem: true },      // Purple
+  { id: "rejected", name: "Rejected", color: "#D0021B", order: 4, isSystem: true }  // Red
+];
 
 export const initialJobs: JobData[] = [
   {
     id: "1",
     company: "Vercel",
     position: "Frontend Developer",
-    location: "Remote",
-    salary: "$120k - $150k",
+    location: "San Francisco, USA",
+    workMode: "remote",
+    salaryMin: 120000,
+    salaryMax: 150000,
+    salaryCurrency: "USD",
     date: "2023-08-15",
+    applyDate: "2023-08-15",
     status: "applied",
     notes: "Applied through company website",
     url: "https://vercel.com/careers",
     priority: 5,
-    tags: ["React", "Next.js", "TypeScript"],
+    skills: ["React", "Next.js", "TypeScript"],
+    softSkills: [],
+    requirements: [],
     description: "Looking for an experienced frontend developer with strong React and Next.js skills.",
   },
   {
     id: "2",
     company: "Stripe",
     position: "Full Stack Engineer",
-    location: "San Francisco, CA",
-    salary: "$130k - $160k",
+    location: "San Francisco, USA",
+    workMode: "hybrid",
+    salaryMin: 130000,
+    salaryMax: 160000,
+    salaryCurrency: "USD",
     date: "2023-08-10",
+    applyDate: "2023-08-10",
     status: "interview",
     notes: "First interview scheduled for next week",
     url: "https://stripe.com/jobs",
     priority: 4,
-    tags: ["React", "Node.js", "PostgreSQL"],
+    skills: ["React", "Node.js", "PostgreSQL"],
+    softSkills: [],
+    requirements: [],
     description: "Building payment infrastructure for the internet.",
   },
   {
     id: "3",
     company: "Airbnb",
     position: "Senior Frontend Engineer",
-    location: "Remote",
-    salary: "$140k - $170k",
+    location: "Berlin, Germany",
+    workMode: "remote",
+    salaryMin: 140000,
+    salaryMax: 170000,
+    salaryCurrency: "USD",
     date: "2023-08-05",
     status: "wishlist",
     url: "https://airbnb.com/careers",
     priority: 3,
-    tags: ["React", "JavaScript", "CSS"],
+    skills: ["React", "JavaScript", "CSS"],
+    softSkills: [],
+    requirements: [],
     description: "Join our team to build the future of travel and accommodations.",
   },
   {
@@ -53,7 +78,9 @@ export const initialJobs: JobData[] = [
     notes: "Rejected after technical interview",
     url: "https://netflix.com/jobs",
     priority: 2,
-    tags: ["React", "JavaScript", "A/B Testing"],
+    skills: ["React", "JavaScript", "A/B Testing"],
+    softSkills: [],
+    requirements: [],
     description: "Creating engaging user interfaces for our streaming platform.",
   },
   {
@@ -67,7 +94,9 @@ export const initialJobs: JobData[] = [
     notes: "Received offer, need to respond by next week",
     url: "https://shopify.com/careers",
     priority: 5,
-    tags: ["React", "Ruby on Rails", "GraphQL"],
+    skills: ["React", "Ruby on Rails", "GraphQL"],
+    softSkills: [],
+    requirements: [],
     description: "Building tools to help entrepreneurs start and grow their businesses.",
   },
   {
@@ -81,7 +110,9 @@ export const initialJobs: JobData[] = [
     notes: "Applied through referral",
     url: "https://microsoft.com/careers",
     priority: 4,
-    tags: ["C#", ".NET", "Azure"],
+    skills: ["C#", ".NET", "Azure"],
+    softSkills: [],
+    requirements: [],
     description: "Developing cloud solutions for enterprise customers.",
   },
   {
@@ -94,7 +125,9 @@ export const initialJobs: JobData[] = [
     status: "wishlist",
     url: "https://careers.google.com",
     priority: 5,
-    tags: ["JavaScript", "Angular", "Web Performance"],
+    skills: ["JavaScript", "Angular", "Web Performance"],
+    softSkills: [],
+    requirements: [],
     description: "Building fast, responsive web applications used by millions of people.",
   },
   {
@@ -108,7 +141,9 @@ export const initialJobs: JobData[] = [
     notes: "Second round interview scheduled",
     url: "https://amazon.jobs",
     priority: 4,
-    tags: ["React", "AWS", "User Experience"],
+    skills: ["React", "AWS", "User Experience"],
+    softSkills: [],
+    requirements: [],
     description: "Creating intuitive shopping experiences for customers worldwide.",
   },
 ]
@@ -117,6 +152,7 @@ export const initialResumes: ResumeData[] = [
   {
     id: "1",
     title: "Software Developer Resume",
+    originalName: "software_dev_resume.pdf",
     lastUpdated: "2023-08-01",
     format: "PDF",
     size: "245 KB",
@@ -126,6 +162,7 @@ export const initialResumes: ResumeData[] = [
   {
     id: "2",
     title: "Frontend Developer Resume",
+    originalName: "frontend_dev_resume.pdf",
     lastUpdated: "2023-07-15",
     format: "PDF",
     size: "198 KB",

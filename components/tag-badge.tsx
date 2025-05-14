@@ -8,6 +8,7 @@ export interface TagBadgeProps {
   className?: string
   gradient?: "blue" | "green" | "orange" | "default" | "rose" | "amber"
   selected?: boolean
+  onClick?: () => void
 }
 
 const gradientClasses = {
@@ -19,15 +20,17 @@ const gradientClasses = {
   default: "bg-secondary text-secondary-foreground",
 }
 
-export function TagBadge({ tag, className, gradient = "default", selected = false }: TagBadgeProps) {
+export function TagBadge({ tag, className, gradient = "default", selected = false, onClick }: TagBadgeProps) {
   return (
     <div
       className={cn(
         "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
         gradientClasses[gradient],
         selected && "ring-2 ring-white/20 shadow-lg scale-105",
+        onClick && "cursor-pointer hover:opacity-90",
         className,
       )}
+      onClick={onClick}
     >
       <TagIcon className="mr-1.5 h-3 w-3" />
       {tag}

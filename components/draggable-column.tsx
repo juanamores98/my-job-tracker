@@ -17,6 +17,7 @@ interface DraggableColumnProps {
   children: React.ReactNode
   onDrop: (jobId: string) => void
   onSettingsClick: () => void
+  onAddJobClick: (statusId: string) => void
 }
 
 export function DraggableColumn({
@@ -30,6 +31,7 @@ export function DraggableColumn({
   children,
   onDrop,
   onSettingsClick,
+  onAddJobClick,
 }: DraggableColumnProps) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -58,6 +60,11 @@ export function DraggableColumn({
 
       // Determine mouse position
       const clientOffset = monitor.getClientOffset()
+      
+      // If clientOffset is null, we can't calculate drag position
+      if (!clientOffset) {
+        return
+      }
 
       // Get pixels to the left
       const hoverClientX = clientOffset.x - hoverBoundingRect.left
@@ -102,11 +109,13 @@ export function DraggableColumn({
   return (
     <div
       ref={ref}
-      className="h-full transition-transform duration-200"
+      className="h-full transition-transform duration-200 mx-1"
       style={{
         opacity: isDragging ? 0.5 : 1,
         transform: isOver ? "scale(1.02)" : "scale(1)",
+        cursor: isDragging ? "grabbing" : "grab"
       }}
+      aria-label={`${title} column`}
     >
       <JobColumn
         id={id}
@@ -116,6 +125,7 @@ export function DraggableColumn({
         count={count}
         onDrop={onDrop}
         onSettingsClick={onSettingsClick}
+        onAddJobClick={onAddJobClick}
         isDragging={isDragging}
       >
         {children}

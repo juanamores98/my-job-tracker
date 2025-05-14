@@ -17,23 +17,28 @@ export interface JobData {
   id: string
   company: string
   position: string
-  location?: string
-  salary?: string
+  location?: string // City and country
+  salary?: string // Legacy field for backward compatibility
   date?: string
   status: ColumnType
   notes?: string
   url?: string
   priority?: number
-  tags?: string[]
+  skills?: string[] // Technical skills
+  tags?: string[] // Legacy field for backward compatibility (technical skills)
+  softSkills?: string[] // Soft skills like communication, teamwork, etc.
+  requirements?: string[] // Job requirements like education, experience, etc.
   description?: string
-  // New fields
-  applyDate?: string
-  followUpDate?: string
+  // Work modality as a separate field
   workMode?: WorkMode
-  excitement?: number // 1-5 rating
+  // Salary information
   salaryMin?: number
   salaryMax?: number
   salaryCurrency?: string
+  // Dates
+  applyDate?: string
+  followUpDate?: string
+  // Additional fields
   contactPerson?: string
   contactEmail?: string
   benefits?: string[]
@@ -42,13 +47,14 @@ export interface JobData {
 
 export interface ResumeData {
   id: string
-  title: string
-  lastUpdated: string
-  format: string
-  size: string
-  content?: string
-  file?: File
-  url?: string
+  originalName: string // Original uploaded file name
+  title: string // User-editable display name
+  lastUpdated: string // ISO date string of upload/update
+  format: string // e.g., 'application/pdf', 'application/msword' (MIME type)
+  size: string // File size in a readable format (e.g., "2.5 MB")
+  content?: string // Base64 encoded file content for localStorage
+  file?: File // Transient, for upload/download handling
+  url?: string // Blob URL for preview/download
   // New fields
   version?: string
   targetPosition?: string
@@ -177,7 +183,9 @@ export interface JobFilter {
   workMode?: WorkMode[]
   location?: string[]
   company?: string[]
-  tags?: string[]
+  skills?: string[]
+  softSkills?: string[]
+  requirements?: string[]
   searchTerm?: string
 }
 

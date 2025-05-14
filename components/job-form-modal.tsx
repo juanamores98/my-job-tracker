@@ -1,0 +1,917 @@
+"use client"
+
+import { useState, useEffect, useRef } from "react"
+import { z } from "zod"
+import { Plus, Star, X, Calendar, MapPin, Link2, Loader2, Briefcase, Info, Edit3, Trash2, Tags } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogClose,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import type { ColumnType, JobData, JobState, WorkMode } from "@/lib/types"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar as CalendarComponent } from "@/components/ui/calendar"
+import { format, parseISO } from "date-fns"
+import { cn } from "@/lib/utils"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { useToast } from "@/hooks/use-toast"
+import { getJobStates } from "@/lib/storage"
+import { useLanguage } from "@/lib/i18n"
+import { EnhancedTagInput } from "./enhanced-tag-input"
+import { useMediaQuery } from "@/hooks/use-media-query"
+import { ScrollArea } from "@/components/ui/scroll-area"
+
+// Zod Schema for Job Validation
+const jobSchema = z.object({
+  company: z.string().min(1, "Company name is required"),
+  position: z.string().min(1, "Position is required"),
+  location: z.string().optional(),
+  url: z.string().url("Please enter a valid URL").optional().or(z.literal("")),
+  status: z.string().min(1, "Status is required"),
+  date: z.string().optional(), // Date of application or last update
+  applyDate: z.string().optional(),
+
+  salaryMin: z.number().optional(),
+  salaryMax: z.number().optional(),
+  salaryCurrency: z.string().max(3, "Currency code should be 3 characters").optional(),
+
+  workMode: z.enum(["remote", "onsite", "hybrid", "flexible"]).optional(),
+  priority: z.number().min(0).max(5).optional(),
+  tags: z.array(z.string()).optional(),
+  description: z.string().optional(),
+  notes: z.string().optional(),
+})
+
+interface JobFormModalProps {
+  onAddJob: (job: JobData) => void
+  onEditJob?: (job: JobData) => void // For editing
+  jobToEdit?: JobData | null         // Job data for editing
+  initialStatus?: string
+  buttonVariant?: "default" | "outline" | "secondary" | "ghost" | "link"
+  buttonSize?: "default" | "sm" | "lg" | "icon"
+  buttonClassName?: string
+  buttonIcon?: React.ReactNode
+  buttonLabel?: string // Will be dynamic: "Add Job" or "Edit Job"
+  open?: boolean
+  onClose?: () => void
+  jobStates?: JobState[]
+}
+
+const initialFormData: Partial<JobData> = {
+  company: "",
+  position: "",
+  location: "",
+  salaryMin: undefined,
+  salaryMax: undefined,
+  salaryCurrency: "USD",
+  status: undefined,
+  priority: 3,
+  tags: [],
+  description: "",
+  notes: "",
+  url: "",
+  date: new Date().toISOString().split("T")[0],
+  applyDate: new Date().toISOString().split("T")[0],
+  workMode: "remote",
+}
+
+export function JobFormModal({
+  onAddJob,
+  onEditJob,
+  jobToEdit,
+  initialStatus,
+  buttonVariant = "default",
+  buttonSize = "default",
+  buttonClassName = "",
+  buttonIcon,
+  buttonLabel = "Add Job",
+  open: controlledOpen,
+  onClose,
+  jobStates: propJobStates,
+}: JobFormModalProps) {
+  const [open, setOpen] = useState(false)
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [formData, setFormData] = useState<Partial<JobData>>(initialFormData)
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({})
+
+  const [jobStates, setJobStatesInternal] = useState<JobState[]>([])
+  const [isSaving, setIsSaving] = useState(false)
+  const firstInputRef = useRef<HTMLInputElement>(null)
+  const isMobile = useMediaQuery("(max-width: 768px)")
+
+  const { toast } = useToast()
+  const { t } = useLanguage()
+
+  // Initialize form data when editing
+  useEffect(() => {
+    if (jobToEdit) {
+      setIsEditMode(true)
+      setFormData({
+        ...jobToEdit,
+      })
+    } else {
+      setIsEditMode(false)
+      setFormData({
+        ...initialFormData,
+        status: initialStatus,
+      })
+    }
+  }, [jobToEdit, initialStatus])
+
+  // Load job states
+  useEffect(() => {
+    if (propJobStates) {
+      setJobStatesInternal(propJobStates)
+    } else {
+      const loadJobStates = async () => {
+        const states = getJobStates()
+        setJobStatesInternal(states)
+
+        // Set default status if not already set
+        if (!formData.status && states.length > 0) {
+          const defaultState = states.find(state => state.isDefault) || states[0]
+          setFormData(prev => ({ ...prev, status: defaultState.id }))
+        }
+      }
+
+      loadJobStates()
+    }
+  }, [propJobStates, formData.status])
+
+  // Handle controlled open state
+  useEffect(() => {
+    if (controlledOpen !== undefined) {
+      setOpen(controlledOpen)
+    }
+  }, [controlledOpen])
+
+  // Focus first input when modal opens
+  useEffect(() => {
+    if (open && firstInputRef.current) {
+      setTimeout(() => {
+        firstInputRef.current?.focus()
+      }, 100)
+    }
+  }, [open])
+
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen)
+
+    if (!newOpen && onClose) {
+      onClose()
+    }
+
+    // Reset form when closing
+    if (!newOpen && !controlledOpen) {
+      setTimeout(() => {
+        setFormData(initialFormData)
+        setFormErrors({})
+        setTouchedFields({})
+      }, 300)
+    }
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target
+    setFormData({ ...formData, [name]: value })
+
+    // Mark field as touched
+    if (!touchedFields[name]) {
+      setTouchedFields({ ...touchedFields, [name]: true })
+    }
+
+    // Validate field on change if it's been touched
+    if (touchedFields[name]) {
+      validateField(name, value)
+    }
+  }
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target
+
+    // Mark field as touched
+    if (!touchedFields[name]) {
+      setTouchedFields({ ...touchedFields, [name]: true })
+    }
+
+    // Validate field on blur
+    validateField(name, value)
+  }
+
+  const validateField = (name: string, value: any) => {
+    try {
+      // Create a partial schema for just this field
+      const fieldSchema = z.object({ [name]: jobSchema.shape[name as keyof typeof jobSchema.shape] })
+      fieldSchema.parse({ [name]: value })
+
+      // Clear error if validation passes
+      if (formErrors[name]) {
+        setFormErrors({ ...formErrors, [name]: "" })
+      }
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const fieldError = error.errors.find(err => err.path[0] === name)
+        if (fieldError) {
+          setFormErrors({ ...formErrors, [name]: fieldError.message })
+        }
+      }
+    }
+  }
+
+  const handleNumericChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
+    const numValue = value === "" ? undefined : Number(value)
+    setFormData({ ...formData, [name]: numValue })
+
+    // Mark field as touched
+    if (!touchedFields[name]) {
+      setTouchedFields({ ...touchedFields, [name]: true })
+    }
+
+    // Validate field if touched
+    if (touchedFields[name]) {
+      validateField(name, numValue)
+    }
+  }
+
+  const handleSelectChange = (name: string, value: string) => {
+    setFormData({ ...formData, [name]: value })
+
+    // Mark field as touched
+    if (!touchedFields[name]) {
+      setTouchedFields({ ...touchedFields, [name]: true })
+    }
+
+    // Validate field
+    validateField(name, value)
+  }
+
+  const handleDateChange = (name: string, date: Date | undefined) => {
+    if (date) {
+      const dateStr = date.toISOString().split("T")[0]
+      setFormData({ ...formData, [name]: dateStr })
+
+      // Mark field as touched
+      if (!touchedFields[name]) {
+        setTouchedFields({ ...touchedFields, [name]: true })
+      }
+
+      // Validate field
+      validateField(name, dateStr)
+    } else {
+      setFormData({ ...formData, [name]: undefined })
+
+      // Mark field as touched
+      if (!touchedFields[name]) {
+        setTouchedFields({ ...touchedFields, [name]: true })
+      }
+
+      // Validate field
+      validateField(name, undefined)
+    }
+  }
+
+  const handleTagsChange = (tags: string[]) => {
+    setFormData({ ...formData, tags })
+
+    // Mark field as touched
+    if (!touchedFields.tags) {
+      setTouchedFields({ ...touchedFields, tags: true })
+    }
+  }
+
+  const handlePriorityChange = (value: number) => {
+    setFormData({ ...formData, priority: value })
+
+    // Mark field as touched
+    if (!touchedFields.priority) {
+      setTouchedFields({ ...touchedFields, priority: true })
+    }
+  }
+
+  const validateForm = (): boolean => {
+    try {
+      // Validate with Zod
+      jobSchema.parse(formData)
+      setFormErrors({})
+      return true
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const errors: Record<string, string> = {}
+        error.errors.forEach((err) => {
+          const field = err.path[0].toString()
+          errors[field] = err.message
+        })
+        setFormErrors(errors)
+
+        // Mark all fields with errors as touched
+        const newTouchedFields = { ...touchedFields }
+        Object.keys(errors).forEach(field => {
+          newTouchedFields[field] = true
+        })
+        setTouchedFields(newTouchedFields)
+      }
+      return false
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (isSaving) return
+
+    if (!validateForm()) {
+      toast({
+        title: "Please fix the errors",
+        description: "There are some issues with your form entries.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSaving(true)
+
+    try {
+      // Generate ID if not editing
+      const jobData: JobData = {
+        id: formData.id || Date.now().toString(),
+        company: formData.company || "",
+        position: formData.position || "",
+        status: formData.status || "wishlist",
+        ...formData,
+      } as JobData
+
+      if (isEditMode && onEditJob) {
+        onEditJob(jobData)
+        toast({
+          title: "Job updated",
+          description: `${jobData.company} - ${jobData.position} has been updated.`,
+        })
+      } else {
+        onAddJob(jobData)
+        toast({
+          title: "Job added",
+          description: `${jobData.company} - ${jobData.position} has been added.`,
+        })
+      }
+
+      handleOpenChange(false)
+    } catch (error) {
+      console.error("Error saving job:", error)
+      toast({
+        title: "Error occurred",
+        description: "There was a problem saving the job.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Trigger button (only shown when not controlled)
+  const triggerButton = (
+    <Button
+      variant={buttonVariant}
+      size={buttonSize}
+      className={buttonClassName}
+      onClick={() => handleOpenChange(true)}
+    >
+      {buttonIcon || <Plus className="h-4 w-4 mr-2" />}
+      {buttonLabel}
+    </Button>
+  )
+
+  // Priority rating component
+  const PriorityRating = ({ value, onChange }: { value: number, onChange: (value: number) => void }) => {
+    return (
+      <div className="flex items-center gap-1">
+        {[1, 2, 3, 4, 5].map((rating) => (
+          <button
+            key={rating}
+            type="button"
+            className="focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+            onClick={() => onChange(rating)}
+            aria-label={`Priority ${rating}`}
+          >
+            <Star
+              className={cn(
+                "h-5 w-5 transition-all",
+                rating <= value
+                  ? "fill-primary text-primary"
+                  : "fill-none text-muted-foreground hover:fill-primary/20"
+              )}
+            />
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  // Date picker component
+  const DatePickerField = ({
+    name,
+    value,
+    onChange,
+    label,
+    error,
+    helperText
+  }: {
+    name: string,
+    value?: string,
+    onChange: (name: string, date: Date | undefined) => void,
+    label: string,
+    error?: string,
+    helperText?: string
+  }) => {
+    const [date, setDate] = useState<Date | undefined>(value ? new Date(value) : undefined)
+
+    return (
+      <div className="space-y-2">
+        <Label htmlFor={name} className={cn(error && "text-destructive")}>
+          {label}
+        </Label>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              id={name}
+              variant="outline"
+              className={cn(
+                "w-full justify-start text-left font-normal",
+                !date && "text-muted-foreground",
+                error && "border-destructive ring-destructive"
+              )}
+              aria-invalid={!!error}
+              aria-describedby={error ? `${name}-error` : helperText ? `${name}-description` : undefined}
+            >
+              <Calendar className="mr-2 h-4 w-4" />
+              {date ? format(date, "PPP") : <span>Select a date</span>}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <CalendarComponent
+              mode="single"
+              selected={date}
+              onSelect={(newDate) => {
+                setDate(newDate)
+                onChange(name, newDate)
+              }}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
+
+        {helperText && !error && (
+          <p id={`${name}-description`} className="text-sm text-muted-foreground">
+            {helperText}
+          </p>
+        )}
+
+        {error && (
+          <p id={`${name}-error`} className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  // Form field component with consistent styling and accessibility
+  const FormField = ({
+    name,
+    label,
+    children,
+    error,
+    required = false,
+    helperText,
+    optional = false
+  }: {
+    name: string,
+    label: string,
+    children: React.ReactNode,
+    error?: string,
+    required?: boolean,
+    helperText?: string,
+    optional?: boolean
+  }) => (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label
+          htmlFor={name}
+          className={cn(error && "text-destructive")}
+        >
+          {label}
+          {required && <span className="text-destructive ml-1">*</span>}
+          {optional && <span className="text-muted-foreground ml-2 text-sm">(optional)</span>}
+        </Label>
+      </div>
+
+      {children}
+
+      {helperText && !error && (
+        <p id={`${name}-description`} className="text-sm text-muted-foreground">
+          {helperText}
+        </p>
+      )}
+
+      {error && (
+        <p id={`${name}-error`} className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+
+  return (
+    <>
+      {controlledOpen === undefined && triggerButton}
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="sm:max-w-md md:max-w-lg lg:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{isEditMode ? "Edit Job" : "Add New Job"}</DialogTitle>
+            <DialogDescription>
+              {isEditMode
+                ? "Update the details for this job application."
+                : "Enter the details for your new job application."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <ScrollArea className="max-h-[75vh]">
+            <form
+              id="job-form"
+              onSubmit={handleSubmit}
+              className="space-y-6 px-1 py-4"
+              role="form"
+              aria-label={isEditMode ? "Edit job form" : "Add new job form"}
+            >
+              {/* Core Details Section */}
+              <div className="space-y-4">
+                <h3 className="text-base font-medium">Basic Information</h3>
+
+                <FormField
+                  name="company"
+                  label="Company"
+                  required
+                  error={formErrors.company}
+                >
+                  <Input
+                    id="company"
+                    name="company"
+                    ref={firstInputRef}
+                    value={formData.company || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    placeholder="Enter company name"
+                    className={cn(formErrors.company && "border-destructive ring-destructive")}
+                    aria-invalid={!!formErrors.company}
+                    aria-describedby={formErrors.company ? "company-error" : undefined}
+                  />
+                </FormField>
+
+                <FormField
+                  name="position"
+                  label="Position"
+                  required
+                  error={formErrors.position}
+                >
+                  <Input
+                    id="position"
+                    name="position"
+                    value={formData.position || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    placeholder="Enter job title"
+                    className={cn(formErrors.position && "border-destructive ring-destructive")}
+                    aria-invalid={!!formErrors.position}
+                    aria-describedby={formErrors.position ? "position-error" : undefined}
+                  />
+                </FormField>
+
+                <FormField
+                  name="location"
+                  label="Location"
+                  error={formErrors.location}
+                  optional
+                  helperText="City, state, country or remote"
+                >
+                  <Input
+                    id="location"
+                    name="location"
+                    value={formData.location || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    placeholder="e.g. New York, NY or Remote"
+                    className={cn(formErrors.location && "border-destructive ring-destructive")}
+                    aria-invalid={!!formErrors.location}
+                    aria-describedby={formErrors.location ? "location-error" : "location-description"}
+                  />
+                </FormField>
+
+                <FormField
+                  name="url"
+                  label="URL / Link"
+                  error={formErrors.url}
+                  optional
+                  helperText="Link to job posting or company website"
+                >
+                  <Input
+                    id="url"
+                    name="url"
+                    value={formData.url || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    placeholder="https://example.com/jobs/123"
+                    className={cn(formErrors.url && "border-destructive ring-destructive")}
+                    aria-invalid={!!formErrors.url}
+                    aria-describedby={formErrors.url ? "url-error" : "url-description"}
+                  />
+                </FormField>
+              </div>
+
+              {/* Status and Dates Section */}
+              <div className="space-y-4 pt-2">
+                <h3 className="text-base font-medium">Status & Dates</h3>
+
+                <FormField
+                  name="status"
+                  label="Status"
+                  required
+                  error={formErrors.status}
+                >
+                  <Select
+                    value={formData.status}
+                    onValueChange={(value) => handleSelectChange("status", value)}
+                  >
+                    <SelectTrigger
+                      id="status"
+                      className={cn(formErrors.status && "border-destructive ring-destructive")}
+                      aria-invalid={!!formErrors.status}
+                      aria-describedby={formErrors.status ? "status-error" : undefined}
+                    >
+                      <SelectValue placeholder="Select a status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {jobStates.map((state) => (
+                        <SelectItem key={state.id} value={state.id}>
+                          <div className="flex items-center">
+                            <div
+                              className="w-2 h-2 rounded-full mr-2"
+                              style={{ backgroundColor: state.color }}
+                            />
+                            {state.name}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+
+                <DatePickerField
+                  name="applyDate"
+                  label="Date"
+                  value={formData.applyDate}
+                  onChange={handleDateChange}
+                  error={formErrors.applyDate}
+                  helperText="When you applied or plan to apply"
+                />
+              </div>
+
+              {/* Salary Information */}
+              <div className="space-y-4 pt-2">
+                <h3 className="text-base font-medium">Salary Information</h3>
+
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="flex gap-4">
+                    <div className="flex-1">
+                      <FormField
+                        name="salaryMin"
+                        label="Minimum Salary"
+                        error={formErrors.salaryMin}
+                        optional
+                      >
+                        <Input
+                          id="salaryMin"
+                          name="salaryMin"
+                          type="number"
+                          value={formData.salaryMin === undefined ? "" : formData.salaryMin}
+                          onChange={handleNumericChange}
+                          onBlur={handleBlur}
+                          placeholder="e.g. 60000"
+                          className={cn(formErrors.salaryMin && "border-destructive ring-destructive")}
+                          aria-invalid={!!formErrors.salaryMin}
+                          aria-describedby={formErrors.salaryMin ? "salaryMin-error" : undefined}
+                        />
+                      </FormField>
+                    </div>
+
+                    <div className="flex-1">
+                      <FormField
+                        name="salaryMax"
+                        label="Maximum Salary"
+                        error={formErrors.salaryMax}
+                        optional
+                      >
+                        <Input
+                          id="salaryMax"
+                          name="salaryMax"
+                          type="number"
+                          value={formData.salaryMax === undefined ? "" : formData.salaryMax}
+                          onChange={handleNumericChange}
+                          onBlur={handleBlur}
+                          placeholder="e.g. 80000"
+                          className={cn(formErrors.salaryMax && "border-destructive ring-destructive")}
+                          aria-invalid={!!formErrors.salaryMax}
+                          aria-describedby={formErrors.salaryMax ? "salaryMax-error" : undefined}
+                        />
+                      </FormField>
+                    </div>
+                  </div>
+
+                  <FormField
+                    name="salaryCurrency"
+                    label="Currency"
+                    error={formErrors.salaryCurrency}
+                    optional
+                  >
+                    <Select
+                      value={formData.salaryCurrency || "USD"}
+                      onValueChange={(value) => handleSelectChange("salaryCurrency", value)}
+                    >
+                      <SelectTrigger
+                        id="salaryCurrency"
+                        className={cn(formErrors.salaryCurrency && "border-destructive ring-destructive")}
+                        aria-invalid={!!formErrors.salaryCurrency}
+                        aria-describedby={formErrors.salaryCurrency ? "salaryCurrency-error" : undefined}
+                      >
+                        <SelectValue placeholder="Select currency" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="USD">USD - US Dollar</SelectItem>
+                        <SelectItem value="EUR">EUR - Euro</SelectItem>
+                        <SelectItem value="GBP">GBP - British Pound</SelectItem>
+                        <SelectItem value="CAD">CAD - Canadian Dollar</SelectItem>
+                        <SelectItem value="AUD">AUD - Australian Dollar</SelectItem>
+                        <SelectItem value="JPY">JPY - Japanese Yen</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                </div>
+              </div>
+
+              {/* Work Mode and Priority */}
+              <div className="space-y-4 pt-2">
+                <h3 className="text-base font-medium">Work Mode & Priority</h3>
+
+                <FormField
+                  name="workMode"
+                  label="Work Mode"
+                  error={formErrors.workMode}
+                  optional
+                >
+                  <Select
+                    value={formData.workMode}
+                    onValueChange={(value) => handleSelectChange("workMode", value as WorkMode)}
+                  >
+                    <SelectTrigger
+                      id="workMode"
+                      className={cn(formErrors.workMode && "border-destructive ring-destructive")}
+                      aria-invalid={!!formErrors.workMode}
+                      aria-describedby={formErrors.workMode ? "workMode-error" : undefined}
+                    >
+                      <SelectValue placeholder="Select work mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="remote">Remote</SelectItem>
+                      <SelectItem value="onsite">On-site</SelectItem>
+                      <SelectItem value="hybrid">Hybrid</SelectItem>
+                      <SelectItem value="flexible">Flexible</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+
+                <FormField
+                  name="priority"
+                  label="Priority / Rating"
+                  error={formErrors.priority}
+                  optional
+                  helperText="How interested are you in this job?"
+                >
+                  <PriorityRating
+                    value={formData.priority || 3}
+                    onChange={handlePriorityChange}
+                  />
+                </FormField>
+              </div>
+
+              {/* Skills */}
+              <div className="space-y-4 pt-2">
+                <h3 className="text-base font-medium flex items-center gap-1.5">
+                  <Tags className="h-4 w-4 text-muted-foreground" />
+                  Skills
+                </h3>
+
+                <FormField
+                  name="tags"
+                  label=""
+                  error={formErrors.tags}
+                  optional
+                  helperText="Add relevant skills, technologies, or categories"
+                >
+                  <div className={cn(
+                    "p-3 border rounded-md bg-background",
+                    formErrors.tags && "border-destructive ring-1 ring-destructive"
+                  )}>
+                    <EnhancedTagInput
+                      tags={formData.tags || []}
+                      onTagsChange={handleTagsChange}
+                      placeholder="Type and press Enter to add tags"
+                    />
+                  </div>
+                </FormField>
+              </div>
+
+              {/* Description and Notes */}
+              <div className="space-y-4 pt-2">
+                <h3 className="text-base font-medium">Description & Notes</h3>
+
+                <FormField
+                  name="description"
+                  label="Job Description"
+                  error={formErrors.description}
+                  optional
+                  helperText="Copy and paste the job description here"
+                >
+                  <Textarea
+                    id="description"
+                    name="description"
+                    value={formData.description || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    placeholder="Paste the job description here..."
+                    rows={6}
+                    className={cn(
+                      "min-h-[100px] bg-background",
+                      formErrors.description && "border-destructive ring-destructive"
+                    )}
+                    aria-invalid={!!formErrors.description}
+                    aria-describedby={formErrors.description ? "description-error" : "description-description"}
+                  />
+                </FormField>
+
+                <FormField
+                  name="notes"
+                  label="Notes"
+                  error={formErrors.notes}
+                  optional
+                  helperText="Add your thoughts, interview prep, or anything else you want to remember"
+                >
+                  <Textarea
+                    id="notes"
+                    name="notes"
+                    value={formData.notes || ""}
+                    onChange={handleChange}
+                    onBlur={handleBlur}
+                    placeholder="Add personal notes..."
+                    rows={4}
+                    className={cn(
+                      "min-h-[100px] bg-background",
+                      formErrors.notes && "border-destructive ring-destructive"
+                    )}
+                    aria-invalid={!!formErrors.notes}
+                    aria-describedby={formErrors.notes ? "notes-error" : "notes-description"}
+                  />
+                </FormField>
+              </div>
+            </form>
+          </ScrollArea>
+
+          <DialogFooter className="flex items-center gap-2 pt-2">
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              type="submit"
+              form="job-form"
+              disabled={isSaving}
+            >
+              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {isEditMode ? "Save Changes" : "Add Job"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}

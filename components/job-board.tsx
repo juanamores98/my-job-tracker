@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react"
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { DraggableColumn } from "./draggable-column"
 import { JobCard } from "./job-card"
 import { DndProvider } from "react-dnd"
 import { HTML5Backend } from "react-dnd-html5-backend"
-import type { JobData, ColumnType, JobFilter, SortOption, GroupOption, JobState } from "@/lib/types"
+import type { JobData, ColumnType, JobFilter, SortOption, GroupOption, JobState, WorkMode } from "@/lib/types"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"; // Added Input import
 import {
   FileUp,
   Table,
@@ -20,8 +21,15 @@ import {
   ArrowLeft,
   ArrowRight,
   FileJson,
+  FileSpreadsheet,
+  Upload,
+  Download,
+  FileText,
+  Filter,
+  Calendar,
+  Search, // Added Search import
 } from "lucide-react"
-import { getJobs, saveJobs, getJobStates, saveJobStates } from "@/lib/storage"
+import { getJobs, saveJobs, getUserSettings, saveUserSettings, getJobStates, saveJobStates } from "@/lib/storage"
 import { useToast } from "@/hooks/use-toast"
 import { useLanguage } from "@/lib/i18n"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -37,15 +45,22 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu"
+// Removed DashboardHeader import, it's no longer used here
+import { MinimalisticJobModal } from "./minimalistic-job-modal"
+import { useStatusManager } from "@/lib/contexts/status-manager-context"
+import { ThemeToggle } from "./theme-toggle"
+import { Skeleton } from "@/components/ui/skeleton"
 import { EnhancedStatusModal } from "./enhanced-status-modal"
-import { AdvancedJobExtractor } from "./advanced-job-extractor"
-import { DashboardHeader } from "./dashboard-header"
-import { EnhancedJobModal } from "./enhanced-job-modal"
+import { defaultJobStates } from "@/lib/data"
 
 export function JobBoard() {
   const [jobs, setJobs] = useState<JobData[]>([])
-  const [jobStates, setJobStates] = useState<JobState[]>([])
   const [view, setView] = useState<"kanban" | "table">("kanban")
   const [filter, setFilter] = useState<JobFilter>({})
   const [sort, setSort] = useState<SortOption>({ field: "date", order: "desc" })
@@ -53,29 +68,72 @@ export function JobBoard() {
   const [searchTerm, setSearchTerm] = useState("")
   const [activeFilters, setActiveFilters] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [isAddStatusModalOpen, setIsAddStatusModalOpen] = useState(false)
+  const [isJobModalOpen, setIsJobModalOpen] = useState(false)
   const [isStatusManagerOpen, setIsStatusManagerOpen] = useState(false)
-  const [isAddJobModalOpen, setIsAddJobModalOpen] = useState(false)
-  const [isExtractionModalOpen, setIsExtractionModalOpen] = useState(false)
-  const [isSearchExpanded, setIsSearchExpanded] = useState(false)
   const [editingJob, setEditingJob] = useState<JobData | null>(null)
-  const [isEditJobModalOpen, setIsEditJobModalOpen] = useState(false)
+  const [initialStatusForModal, setInitialStatusForModal] = useState<string | undefined>(undefined)
   const { toast } = useToast()
   const { t } = useLanguage()
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isMobile = useMediaQuery("(max-width: 768px)")
   const isSmallScreen = useMediaQuery("(max-width: 1024px)")
   const isExtraSmallScreen = useMediaQuery("(max-width: 640px)")
+  const { openStatusManager, jobStates, setJobStates } = useStatusManager()
+
+  // Function to migrate old job format to new format
+  const migrateJobFormat = (job: JobData): JobData => {
+    // Create a copy of the job
+    const updatedJob = { ...job };
+
+    // Check if this is an old format job (has location but no workMode)
+    if (job.location && !job.workMode) {
+      // Check if location contains work mode information
+      const locationLower = job.location.toLowerCase();
+      const isRemote = locationLower.includes('remote');
+      const isHybrid = locationLower.includes('hybrid');
+      const isFlexible = locationLower.includes('flexible');
+
+      // Set work mode based on location text
+      if (isRemote) {
+        updatedJob.workMode = 'remote';
+        // Clean location if it only contains work mode info
+        if (locationLower.trim() === 'remote') {
+          updatedJob.location = '';
+        }
+      } else if (isHybrid) {
+        updatedJob.workMode = 'hybrid';
+        // Clean location if it only contains work mode info
+        if (locationLower.trim() === 'hybrid') {
+          updatedJob.location = '';
+        }
+      } else if (isFlexible) {
+        updatedJob.workMode = 'flexible';
+        // Clean location if it only contains work mode info
+        if (locationLower.trim() === 'flexible') {
+          updatedJob.location = '';
+        }
+      } else {
+        // Default to onsite if location doesn't contain work mode info
+        updatedJob.workMode = 'onsite';
+      }
+    }
+
+    return updatedJob;
+  };
 
   useEffect(() => {
     // Load jobs from localStorage
     const loadedJobs = getJobs()
-    setJobs(loadedJobs)
 
-    // Load job states
-    const states = getJobStates()
-    setJobStates(states.sort((a, b) => a.order - b.order))
+    // Migrate jobs to new format if needed
+    const migratedJobs = loadedJobs.map(migrateJobFormat);
 
+    // Save migrated jobs if any changes were made
+    if (JSON.stringify(loadedJobs) !== JSON.stringify(migratedJobs)) {
+      saveJobs(migratedJobs);
+    }
+
+    setJobs(migratedJobs)
     setIsLoading(false)
   }, [])
 
@@ -209,7 +267,15 @@ export function JobBoard() {
     }
 
     setActiveFilters(filters)
-  }, [filter])
+  }, [filter, searchTerm])
+
+  // Callback for JobTable to update status filter
+  const handleStatusFilterChange = useCallback((statusId?: string) => {
+    setFilter(prevFilter => ({
+      ...prevFilter,
+      status: statusId ? [statusId] : undefined
+    }));
+  }, [setFilter]);
 
   const moveJob = useCallback((jobId: string, targetColumn: ColumnType) => {
     const updatedJobs = jobs.map((job) => (job.id === jobId ? { ...job, status: targetColumn } : job))
@@ -255,153 +321,371 @@ export function JobBoard() {
     })
   }
 
-  const exportJobs = (format: "json" | "csv") => {
+  const exportJobs = (format: "json" | "csv" | "excel") => {
     try {
-      let content: string
-      let filename: string
-      let mimeType: string
-
       if (format === "json") {
-        content = JSON.stringify(jobs, null, 2)
-        filename = `job-tracker-export-${new Date().toISOString().split("T")[0]}.json`
-        mimeType = "application/json"
-      } else {
-        // Create CSV content with headers
-        const headers = [
-          "id",
-          "company",
-          "position",
-          "location",
-          "salary",
-          "date",
-          "status",
-          "notes",
-          "url",
-          "priority",
-          "tags",
-          "description",
-          "workMode",
-        ].join(",")
+        // JSON export
+        const content = JSON.stringify(jobs, null, 2);
+        const blob = new Blob([content], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const filename = `job-tracker-export-${new Date().toISOString().split("T")[0]}.json`;
 
-        const rows = jobs.map((job) => {
-          return [
-            job.id,
-            `"${job.company.replace(/"/g, '""')}"`,
-            `"${job.position.replace(/"/g, '""')}"`,
-            job.location ? `"${job.location.replace(/"/g, '""')}"` : "",
-            job.salary || "",
-            job.date || "",
-            job.status,
-            job.notes ? `"${job.notes.replace(/"/g, '""')}"` : "",
-            job.url || "",
-            job.priority || "",
-            job.tags ? `"${job.tags.join(";").replace(/"/g, '""')}"` : "",
-            job.description ? `"${job.description.replace(/"/g, '""')}"` : "",
-            job.workMode || "",
-          ].join(",")
-        })
+        downloadFile(url, filename);
 
-        content = [headers, ...rows].join("\n")
-        filename = `job-tracker-export-${new Date().toISOString().split("T")[0]}.csv`
-        mimeType = "text/csv"
+        toast({
+          title: t("exportSuccessful"),
+          description: `${t("exportedJobsTo")} JSON`,
+        });
+      } else if (format === "csv") {
+        // CSV export
+        const csvContent = generateCSV(jobs);
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const filename = `job-tracker-export-${new Date().toISOString().split("T")[0]}.csv`;
+
+        downloadFile(url, filename);
+
+        toast({
+          title: t("exportSuccessful"),
+          description: `${t("exportedJobsTo")} CSV`,
+        });
+      } else if (format === "excel") {
+        // Excel export - using SpreadsheetML format
+        exportToExcel(jobs);
+
+        toast({
+          title: t("exportSuccessful"),
+          description: `${t("exportedJobsTo")} Excel`,
+        });
       }
-
-      // Create download link
-      const blob = new Blob([content], { type: mimeType })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = url
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
-
-      toast({
-        title: t("exportSuccessful"),
-        description: `${t("exportedJobsTo")} ${format.toUpperCase()}`,
-      })
     } catch (error) {
-      console.error(`Error exporting to ${format}:`, error)
+      console.error(`Error exporting to ${format}:`, error);
       toast({
         title: t("exportFailed"),
         description: t("errorExportingJobs"),
         variant: "destructive",
-      })
+      });
+    }
+  };
+
+  // Helper function to download a file
+  const downloadFile = (url: string, filename: string) => {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Generate CSV content
+  const generateCSV = (jobsData: JobData[]): string => {
+    // CSV header with all fields including the new ones
+    const headers = [
+      "id", "company", "position", "location", "salary", "date", "status",
+      "notes", "url", "priority", "tags", "description", "workMode",
+      "salaryMin", "salaryMax", "salaryCurrency", "applyDate",
+      "followUpDate", "contactPerson", "contactEmail"
+    ];
+
+    // Convert each job to a row
+    const rows = jobsData.map(job => {
+      const rowValues = [
+        job.id || '',
+        job.company || '',
+        job.position || '',
+        job.location || '',
+        job.salary || '',
+        job.date || '',
+        job.status || '',
+        job.notes || '',
+        job.url || '',
+        job.priority !== undefined ? job.priority.toString() : '',
+        job.tags ? job.tags.join(";") : '',
+        job.description || '',
+        job.workMode || '',
+        job.salaryMin !== undefined ? job.salaryMin.toString() : '',
+        job.salaryMax !== undefined ? job.salaryMax.toString() : '',
+        job.salaryCurrency || '',
+        job.applyDate || '',
+        job.followUpDate || '',
+        // Remove excitement
+        job.contactPerson || '',
+        job.contactEmail || '',
+      ];
+
+      // Escape values that contain commas or quotes
+      return rowValues.map(value => {
+        if (value && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      }).join(',');
+    });
+
+    return [headers.join(','), ...rows].join('\n');
+  };
+
+  // Export to Excel
+  const exportToExcel = (jobsData: JobData[]) => {
+    // Create Excel XML content
+    const filename = `job-tracker-export-${new Date().toISOString().split("T")[0]}.xls`;
+
+    // XML header
+    let excelContent = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>';
+    excelContent += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" ';
+    excelContent += 'xmlns:o="urn:schemas-microsoft-com:office:office" ';
+    excelContent += 'xmlns:x="urn:schemas-microsoft-com:office:excel" ';
+    excelContent += 'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" ';
+    excelContent += 'xmlns:html="http://www.w3.org/TR/REC-html40">';
+
+    // Add styles
+    excelContent += '<Styles>';
+    excelContent += '<Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Bottom"/>';
+    excelContent += '<Borders/><Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#000000"/>';
+    excelContent += '<Interior/><NumberFormat/><Protection/></Style>';
+    excelContent += '<Style ss:ID="HeaderStyle"><Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#000000" ss:Bold="1"/>';
+    excelContent += '<Interior ss:Color="#D9D9D9" ss:Pattern="Solid"/></Style>';
+    excelContent += '</Styles>';
+
+    // Create worksheet
+    excelContent += '<Worksheet ss:Name="Jobs">';
+    excelContent += '<Table>';
+
+    // Table columns
+    const columns = [
+      "id", "company", "position", "location", "salary", "date", "status",
+      "notes", "url", "priority", "tags", "description", "workMode",
+      "salaryMin", "salaryMax", "salaryCurrency", "applyDate",
+      "followUpDate", "contactPerson", "contactEmail"
+    ];
+
+    // Column headers
+    excelContent += '<Row ss:StyleID="HeaderStyle">';
+    columns.forEach(col => {
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(col)}</Data></Cell>`;
+    });
+    excelContent += '</Row>';
+
+    // Data rows
+    jobsData.forEach(job => {
+      excelContent += '<Row>';
+
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.id || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.company || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.position || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.location || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.salary || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.date || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.status || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.notes || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.url || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.priority !== undefined ? job.priority.toString() : '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.tags ? job.tags.join(";") : '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.description || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.workMode || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.salaryMin !== undefined ? job.salaryMin.toString() : '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.salaryMax !== undefined ? job.salaryMax.toString() : '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.salaryCurrency || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.applyDate || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.followUpDate || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.contactPerson || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.contactEmail || '')}</Data></Cell>`;
+
+      excelContent += '</Row>';
+    });
+
+    // Close table, worksheet, and workbook
+    excelContent += '</Table></Worksheet></Workbook>';
+
+    // Create blob and download
+    const blob = new Blob([excelContent], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+
+    downloadFile(url, filename);
+  };
+
+  // Helper function to escape XML special characters
+  const escapeXml = (unsafe: string): string => {
+    if (!unsafe) return '';
+    return unsafe
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
+
+  const importJobs = (format?: string) => {
+    const input = document.createElement("input");
+    input.type = "file";
+
+    // Set accepted file types based on format or accept all supported formats
+    if (format === "json") {
+      input.accept = ".json";
+    } else if (format === "csv") {
+      input.accept = ".csv";
+    } else {
+      input.accept = ".json,.csv";
+    }
+
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+
+      reader.onload = async (event) => {
+        try {
+          const fileContent = event.target?.result as string;
+          if (!fileContent) throw new Error("Failed to read file");
+
+          let importedJobs: JobData[] = [];
+
+          // Process based on file extension
+          if (file.name.endsWith(".json")) {
+            // Parse JSON
+            const parsedJobs = JSON.parse(fileContent);
+
+            // Basic validation
+            if (!Array.isArray(parsedJobs) || !parsedJobs.every(job =>
+              typeof job === 'object' && job.id && job.company && job.position && job.status)) {
+              throw new Error("Invalid JSON format");
+            }
+
+            // Process jobs to ensure they use the new format
+            importedJobs = parsedJobs.map(job => {
+              // Check if this is an old format job (has location but no workMode)
+              if (job.location && !job.workMode) {
+                // Extract work mode from location if possible
+                const isRemote = job.location.toLowerCase().includes('remote');
+                const isHybrid = job.location.toLowerCase().includes('hybrid');
+
+                // Create a new job object with the updated fields
+                return {
+                  ...job,
+                  // Set work mode based on location text
+                  workMode: isRemote ? 'remote' : isHybrid ? 'hybrid' : 'onsite',
+                  // Keep original location, but clean it if it contains work mode info
+                  location: isRemote || isHybrid
+                    ? job.location.replace(/remote|hybrid/gi, '').trim()
+                    : job.location,
+                  // Convert salary string to structured format if possible
+                  ...(job.salary ? parseSalaryString(job.salary) : {})
+                };
+              }
+              return job;
+            });
+          } else if (file.name.endsWith(".csv")) {
+            // Parse CSV
+            importedJobs = parseCSV(fileContent);
+          } else {
+            throw new Error("Unsupported file format");
+          }
+
+          // Merge with existing jobs (avoid duplicates by ID)
+          const existingIds = new Set(jobs.map(job => job.id));
+          const newJobs = importedJobs.filter(job => !existingIds.has(job.id));
+          const updatedJobs = [...jobs, ...newJobs];
+
+          setJobs(updatedJobs);
+          saveJobs(updatedJobs);
+
+          toast({
+            title: t("importSuccessful"),
+            description: `${t("importedJobsCount")} ${newJobs.length}`,
+          });
+        } catch (error) {
+          console.error("Error importing jobs:", error);
+          toast({
+            title: t("importFailed"),
+            description: error instanceof Error ? error.message : t("errorImportingJobs"),
+            variant: "destructive",
+          });
+        }
+      };
+
+      reader.readAsText(file);
+    };
+
+    input.click();
+  };
+
+  // Helper function to parse salary string into structured format
+  const parseSalaryString = (salaryStr: string): Partial<JobData> => {
+    try {
+      // Remove currency symbols and other non-numeric characters
+      const cleanStr = salaryStr.replace(/[^0-9\-\s\.k]/gi, '');
+
+      // Check for salary range format (e.g., "120k - 150k" or "120,000 - 150,000")
+      const rangeMatch = cleanStr.match(/(\d+\.?\d*k?)\s*-\s*(\d+\.?\d*k?)/i);
+
+      if (rangeMatch) {
+        const min = parseKValue(rangeMatch[1]);
+        const max = parseKValue(rangeMatch[2]);
+
+        // Determine currency from original string
+        const currency = determineCurrency(salaryStr);
+
+        return {
+          salaryMin: min,
+          salaryMax: max,
+          salaryCurrency: currency
+        };
+      }
+
+      // Check for single value with plus (e.g., "120k+")
+      const plusMatch = cleanStr.match(/(\d+\.?\d*k?)\+/i);
+      if (plusMatch) {
+        const min = parseKValue(plusMatch[1]);
+        const currency = determineCurrency(salaryStr);
+
+        return {
+          salaryMin: min,
+          salaryCurrency: currency
+        };
+      }
+
+      // Check for single value (e.g., "120k")
+      const singleMatch = cleanStr.match(/(\d+\.?\d*k?)/i);
+      if (singleMatch) {
+        const value = parseKValue(singleMatch[1]);
+        const currency = determineCurrency(salaryStr);
+
+        return {
+          salaryMin: value,
+          salaryMax: value,
+          salaryCurrency: currency
+        };
+      }
+
+      // Default return if no pattern matches
+      return {};
+    } catch (e) {
+      console.error("Error parsing salary string:", e);
+      return {};
     }
   }
 
-  const importJobs = () => {
-    const input = document.createElement("input")
-    input.type = "file"
-    input.accept = ".json,.csv"
-    
-    input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0]
-      if (!file) return
-
-      const reader = new FileReader()
-      
-      reader.onload = (event) => {
-        try {
-          const fileContent = event.target?.result as string
-          
-          // Determine file type based on extension
-          if (file.name.endsWith(".json")) {
-            // Parse JSON
-            const importedJobs = JSON.parse(fileContent) as JobData[]
-            
-            // Basic validation
-            if (!Array.isArray(importedJobs) || !importedJobs.every(job => 
-              typeof job === 'object' && job.id && job.company && job.position && job.status)) {
-              throw new Error("Invalid JSON format")
-            }
-            
-            // Merge with existing jobs (avoid duplicates by ID)
-            const existingIds = new Set(jobs.map(job => job.id))
-            const newJobs = importedJobs.filter(job => !existingIds.has(job.id))
-            const updatedJobs = [...jobs, ...newJobs]
-            
-            setJobs(updatedJobs)
-            saveJobs(updatedJobs)
-            
-            toast({
-              title: t("importSuccessful"),
-              description: `${t("importedJobsCount")} ${newJobs.length}`,
-            })
-          } else if (file.name.endsWith(".csv")) {
-            // Parse CSV
-            const importedJobs = parseCSV(fileContent)
-            
-            // Merge with existing jobs (avoid duplicates by ID)
-            const existingIds = new Set(jobs.map(job => job.id))
-            const newJobs = importedJobs.filter(job => !existingIds.has(job.id))
-            const updatedJobs = [...jobs, ...newJobs]
-            
-            setJobs(updatedJobs)
-            saveJobs(updatedJobs)
-            
-            toast({
-              title: t("importSuccessful"),
-              description: `${t("importedJobsCount")} ${newJobs.length}`,
-            })
-          } else {
-            throw new Error("Unsupported file format")
-          }
-        } catch (error) {
-          console.error("Error importing jobs:", error)
-          toast({
-            title: t("importFailed"),
-            description: t("errorImportingJobs"),
-            variant: "destructive",
-          })
-        }
-      }
-      
-      reader.readAsText(file)
+  // Helper to parse values with 'k' notation (e.g., 120k -> 120000)
+  const parseKValue = (value: string): number => {
+    if (value.toLowerCase().includes('k')) {
+      return parseFloat(value.toLowerCase().replace('k', '')) * 1000;
     }
-    
-    input.click()
+    return parseFloat(value);
+  }
+
+  // Helper to determine currency from salary string
+  const determineCurrency = (salaryStr: string): string => {
+    if (salaryStr.includes('$') || salaryStr.includes('USD')) return 'USD';
+    if (salaryStr.includes('€') || salaryStr.includes('EUR')) return 'EUR';
+    if (salaryStr.includes('£') || salaryStr.includes('GBP')) return 'GBP';
+    if (salaryStr.includes('¥') || salaryStr.includes('JPY')) return 'JPY';
+    if (salaryStr.includes('₹') || salaryStr.includes('INR')) return 'INR';
+    if (salaryStr.includes('C$') || salaryStr.includes('CAD')) return 'CAD';
+    if (salaryStr.includes('A$') || salaryStr.includes('AUD')) return 'AUD';
+    return 'USD'; // Default to USD
   }
 
   // Helper function to parse CSV
@@ -454,7 +738,7 @@ export function JobBoard() {
         salaryCurrency: values[15] || undefined,
         applyDate: values[16] || undefined,
         followUpDate: values[17] || undefined,
-        excitement: values[18] ? Number.parseInt(values[18]) : undefined,
+        // Priority already set above
         contactPerson: values[19]?.replace(/^"|"$/g, "") || undefined,
         contactEmail: values[20]?.replace(/^"|"$/g, "") || undefined,
       }
@@ -554,91 +838,27 @@ export function JobBoard() {
     }
   }, [filter.status])
 
-  // Handle adding a new status
-  const handleAddStatus = (newStatus: JobState) => {
-    const updatedStates = [...jobStates, newStatus].sort((a, b) => a.order - b.order)
-    setJobStates(updatedStates)
-    saveJobStates(updatedStates)
+  // Update the moveColumn function to actually reorder columns
+  const moveColumn = useCallback((dragIndex: number, hoverIndex: number) => {
+    const draggedState = jobStates[dragIndex]
+    const newJobStates = [...jobStates]
 
-    toast({
-      title: t("statusAdded"),
-      description: `${t("newStatusAdded")}: ${newStatus.name}`,
-    })
-  }
+    // Remove the state at dragIndex
+    newJobStates.splice(dragIndex, 1)
 
-  // Handle updating a status
-  const handleUpdateStatus = (updatedStatus: JobState) => {
-    const updatedStates = jobStates.map((state) => (state.id === updatedStatus.id ? updatedStatus : state))
-    setJobStates(updatedStates)
-    saveJobStates(updatedStates)
+    // Insert it at the hoverIndex position
+    newJobStates.splice(hoverIndex, 0, draggedState)
 
-    toast({
-      title: t("statusUpdated"),
-      description: `${t("statusUpdated")}: ${updatedStatus.name}`,
-    })
-  }
+    // Update the order property for each state
+    const reorderedStates = newJobStates.map((state, index) => ({
+      ...state,
+      order: index,
+    }))
 
-  // Handle deleting a status
-  const handleDeleteStatus = (statusId: string) => {
-    // Find default status to move jobs to
-    const defaultStatus = jobStates.find((state) => state.isDefault)?.id || jobStates[0]?.id
-
-    if (!defaultStatus || statusId === defaultStatus) {
-      toast({
-        title: t("cannotDeleteStatus"),
-        description: t("cannotDeleteDefaultStatus"),
-        variant: "destructive",
-      })
-      return
-    }
-
-    // Move all jobs from this status to default status
-    const updatedJobs = jobs.map((job) => (job.status === statusId ? { ...job, status: defaultStatus } : job))
-
-    // Remove the status
-    const updatedStates = jobStates.filter((state) => state.id !== statusId)
-
-    // Save changes
-    setJobs(updatedJobs)
-    setJobStates(updatedStates)
-    saveJobs(updatedJobs)
-    saveJobStates(updatedStates)
-
-    toast({
-      title: t("statusDeleted"),
-      description: t("statusDeletedAndJobsMoved"),
-    })
-  }
-
-  // Handle reordering statuses
-  const handleReorderStatuses = (reorderedStates: JobState[]) => {
+    // Update both local state and save to storage
     setJobStates(reorderedStates)
     saveJobStates(reorderedStates)
-  }
-
-  // Function to move columns via drag and drop
-  const moveColumn = useCallback(
-    (dragIndex: number, hoverIndex: number) => {
-      const dragColumn = jobStates[dragIndex]
-      const newJobStates = [...jobStates]
-
-      // Remove the dragged column
-      newJobStates.splice(dragIndex, 1)
-
-      // Insert the dragged column at the new position
-      newJobStates.splice(hoverIndex, 0, dragColumn)
-
-      // Update the order property for each column
-      const updatedJobStates = newJobStates.map((state, index) => ({
-        ...state,
-        order: index,
-      }))
-
-      setJobStates(updatedJobStates)
-      saveJobStates(updatedJobStates)
-    },
-    [jobStates],
-  )
+  }, [jobStates, setJobStates])
 
   // Scroll the columns container left or right
   const scrollColumns = (direction: "left" | "right") => {
@@ -656,16 +876,23 @@ export function JobBoard() {
 
   const handleOpenEditModal = (job: JobData) => {
     setEditingJob(job)
-    setIsEditJobModalOpen(true)
+    setInitialStatusForModal(job.status);
+    setIsJobModalOpen(true)
+  }
+
+  const handleOpenAddModal = (statusId?: string) => {
+    setEditingJob(null);
+    setInitialStatusForModal(statusId || jobStates.find(s => s.isDefault)?.id || jobStates[0]?.id );
+    setIsJobModalOpen(true);
   }
 
   const renderFloatingActionButton = () => {
     if (!isMobile) return null
-    
+
     return (
       <Button
         className="fixed bottom-4 right-4 rounded-full w-14 h-14 shadow-lg z-50"
-        onClick={() => setIsAddJobModalOpen(true)}
+        onClick={() => handleOpenAddModal()}
       >
         <Plus className="h-6 w-6" />
       </Button>
@@ -673,97 +900,160 @@ export function JobBoard() {
   }
 
   const renderExportImportControls = () => (
-    <div className="flex items-center gap-2">
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2 lg:px-3"
-              onClick={() => exportJobs("json")}
-            >
-              <FileJson className="h-4 w-4" />
-              {!isSmallScreen && <span className="ml-2">{t("export")}</span>}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <p>{t("exportJobsToJSON")}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+    <div className="flex items-center">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 px-2 lg:px-3 flex items-center gap-1"
+          >
+            <Download className="h-4 w-4" />
+            {!isSmallScreen && <span className="ml-1">Export</span>}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuLabel>Export Jobs</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => exportJobs("json")}>
+            <FileJson className="mr-2 h-4 w-4" /> Export JSON
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => exportJobs("csv")}>
+            <FileText className="mr-2 h-4 w-4" /> Export CSV
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => exportJobs("excel")}>
+            <FileSpreadsheet className="mr-2 h-4 w-4" /> Export Excel
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2 lg:px-3"
-              onClick={importJobs}
-            >
-              <FileUp className="h-4 w-4" />
-              {!isSmallScreen && <span className="ml-2">{t("import")}</span>}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <p>{t("importJobsFromJSON")}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 px-2 lg:px-3 ml-2 flex items-center gap-1"
+          >
+            <Upload className="h-4 w-4" />
+            {!isSmallScreen && <span className="ml-1">Import</span>}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuLabel>Import Jobs</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => importJobs("json")}>
+            <FileJson className="mr-2 h-4 w-4" /> Import JSON
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => importJobs("csv")}>
+            <FileText className="mr-2 h-4 w-4" /> Import CSV
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => importJobs()}>
+            <FileUp className="mr-2 h-4 w-4" /> Import All
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
 
+  const duplicateJob = (jobToDuplicate: JobData) => {
+    // Create a new job with the same properties but a new ID and timestamp
+    const newJob: JobData = {
+      ...jobToDuplicate,
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      date: new Date().toISOString().split("T")[0], // Today's date
+      applyDate: new Date().toISOString().split("T")[0],
+      notes: jobToDuplicate.notes ? `${jobToDuplicate.notes}\n\n(Duplicated from original job)` : '(Duplicated from original job)',
+    }
+
+    // Add the new job
+    const updatedJobs = [...jobs, newJob]
+    setJobs(updatedJobs)
+    saveJobs(updatedJobs)
+
+    toast({
+      title: t("jobDuplicated"),
+      description: t("jobDuplicatedSuccess", { position: newJob.position, company: newJob.company }),
+    })
+  }
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-[50vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <div className="flex flex-col h-full">
+        <div className="border-b p-4">
+          <Skeleton className="h-8 w-64 mb-2" />
+          <Skeleton className="h-4 w-full max-w-md" />
+        </div>
+        <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b">
+          <div className="flex justify-between items-center p-2 md:p-4">
+            <Skeleton className="h-9 w-24" />
+            <div className="flex space-x-2">
+              <Skeleton className="h-9 w-32" />
+            </div>
+            <div className="flex space-x-2">
+              <Skeleton className="h-9 w-24" />
+              <Skeleton className="h-9 w-24" />
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 overflow-hidden pt-6">
+          <div className="flex gap-6 px-6">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="min-w-[300px] max-w-[300px] h-[calc(100vh-16rem)] rounded-md border animate-pulse">
+                <div className="p-4 border-b">
+                  <div className="flex justify-between">
+                    <Skeleton className="h-6 w-24" />
+                    <Skeleton className="h-6 w-16" />
+                  </div>
+                </div>
+                <div className="p-4 space-y-4">
+                  {Array.from({ length: 3 }).map((_, j) => (
+                    <Skeleton key={j} className="h-32 w-full rounded-md" />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Dashboard Header */}
-      <DashboardHeader searchTerm={searchTerm} onSearchChange={setSearchTerm} />
+      {/* Dashboard Header (search bar) removed from here, integrated below */}
 
       {/* Fixed Header with Controls */}
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b">
         <div className="flex justify-between items-center p-2 md:p-4">
-          {/* Left Controls */}
+          {/* Left Controls: Search Input and Manage Statuses */}
           <div className="flex items-center space-x-2">
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Search Jobs..."
+                className="h-9 pl-10 pr-3 py-2 text-sm md:w-64 lg:w-80" // Adjusted width
+                value={searchTerm}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+              />
+            </div>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="outline"
                     size={isSmallScreen ? "icon" : "sm"}
-                    onClick={() => setIsAddStatusModalOpen(true)}
-                  >
-                    <Plus className="h-4 w-4" />
-                    {!isSmallScreen && <span className="ml-2">Add Status</span>}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>{t("createNewStatusColumn")}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size={isSmallScreen ? "icon" : "sm"}
-                    onClick={() => setIsStatusManagerOpen(true)}
+                    className="h-9" // Match height of search input
+                    onClick={openStatusManager}
                   >
                     <ListReorder className="h-4 w-4" />
-                    {!isSmallScreen && <span className="ml-2">Manage Status</span>}
+                    {!isSmallScreen && <span className="ml-2">Manage Statuses</span>}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>{t("reorderRenameAndManageStatusColumns")}</p>
+                  <p>{t("manageJobStatuses")}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -814,43 +1104,15 @@ export function JobBoard() {
 
           {/* Right Controls */}
           <div className="flex items-center space-x-2">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="default"
-                    onClick={() => setIsExtractionModalOpen(true)}
-                    className={isSmallScreen ? "px-2" : ""}
-                  >
-                    <Loader2 className="h-4 w-4" />
-                    {!isSmallScreen && <span className="ml-2">Extract</span>}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>{t("extractJobDetailsFromUrl")}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="default"
-                    size="default"
-                    onClick={() => setIsAddJobModalOpen(true)}
-                    className={isSmallScreen ? "px-2" : ""}
-                  >
-                    <Plus className="h-4 w-4" />
-                    {!isSmallScreen && <span className="ml-2">New Job</span>}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>{t("createNewJobApplication")}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <Button
+              variant="default"
+              size="sm"
+              className="h-8 px-2 lg:px-3"
+              onClick={() => handleOpenAddModal()}
+            >
+              <Plus className="h-4 w-4" />
+              {!isSmallScreen && <span className="ml-2">Add Job</span>}
+            </Button>
 
             <TooltipProvider>
               <Tooltip>
@@ -862,18 +1124,41 @@ export function JobBoard() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => exportJobs("json")}>
-                        <FileJson className="mr-2 h-4 w-4" /> {t("exportJson")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={importJobs}>
-                        <FileUp className="mr-2 h-4 w-4" /> {t("import")}
-                      </DropdownMenuItem>
+                      <DropdownMenuLabel>Options</DropdownMenuLabel>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem asChild>
-                        <Link href="/settings/job-states">
-                          <Settings className="mr-2 h-4 w-4" /> {t("manageStates")}
-                        </Link>
-                      </DropdownMenuItem>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Download className="mr-2 h-4 w-4" /> Export
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                          <DropdownMenuItem onSelect={() => exportJobs("json")}>
+                            <FileJson className="mr-2 h-4 w-4" /> Export JSON
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => exportJobs("csv")}>
+                            <FileText className="mr-2 h-4 w-4" /> Export CSV
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => exportJobs("excel")}>
+                            <FileSpreadsheet className="mr-2 h-4 w-4" /> Export Excel
+                          </DropdownMenuItem>
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Upload className="mr-2 h-4 w-4" /> Import
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                          <DropdownMenuItem onSelect={() => importJobs("json")}>
+                            <FileJson className="mr-2 h-4 w-4" /> Import JSON
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => importJobs("csv")}>
+                            <FileText className="mr-2 h-4 w-4" /> Import CSV
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => importJobs()}>
+                            <FileUp className="mr-2 h-4 w-4" /> Import All
+                          </DropdownMenuItem>
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TooltipTrigger>
@@ -909,13 +1194,13 @@ export function JobBoard() {
         )}
 
         <div className="text-sm text-muted-foreground px-4 py-1">
-          {filteredJobs.length} {t("jobApplications")}
+          {filteredJobs.length} Job Applications
         </div>
       </div>
 
       {view === "kanban" ? (
         <DndProvider backend={HTML5Backend}>
-          <div className="relative flex-1 overflow-hidden">
+          <div className="relative flex-1 overflow-hidden h-[calc(100vh-12rem)]">
             {/* Scroll Left Button */}
             <div className="absolute left-0 top-1/2 transform -translate-y-1/2 z-20">
               <TooltipProvider>
@@ -938,33 +1223,40 @@ export function JobBoard() {
             </div>
 
             <ScrollArea className="w-full h-full">
-              <div ref={scrollContainerRef} className="flex gap-4 pb-8 px-4 min-h-[calc(100vh-12rem)]">
-                {jobStates.map((state, index) => (
-                  <DraggableColumn
-                    key={state.id}
-                    id={`column-${state.id}`}
-                    index={index}
-                    moveColumn={moveColumn}
-                    title={state.name}
-                    type={state.id}
-                    color={state.color}
-                    onDrop={(jobId) => moveJob(jobId, state.id)}
-                    count={filteredJobs.filter((job) => job.status === state.id).length}
-                    onSettingsClick={() => setIsStatusManagerOpen(true)}
-                  >
-                    {filteredJobs
-                      .filter((job) => job.status === state.id)
-                      .map((job) => (
-                        <JobCard
-                          key={job.id}
-                          job={job}
-                          onJobUpdate={updateJob}
-                          onJobDelete={deleteJob}
-                          onJobEdit={handleOpenEditModal}
-                        />
-                      ))}
-                  </DraggableColumn>
-                ))}
+              <div
+                ref={scrollContainerRef}
+                className="flex gap-6 pb-8 px-6 pt-6"
+                style={{ minHeight: "100%" }}
+              >
+                {jobStates.map((state, index) => {
+                  return (
+                    <DraggableColumn
+                      key={state.id}
+                      id={`column-${state.id}`}
+                      index={index}
+                      moveColumn={moveColumn}
+                      title={state.name}
+                      type={state.id}
+                      color={state.color}
+                      onDrop={(jobId) => moveJob(jobId, state.id)}
+                      count={filteredJobs.filter((job) => job.status === state.id).length}
+                      onSettingsClick={openStatusManager}
+                      onAddJobClick={() => handleOpenAddModal(state.id)}
+                    >
+                      {filteredJobs
+                        .filter((job) => job.status === state.id)
+                        .map((job) => (
+                          <JobCard
+                            key={job.id}
+                            job={job}
+                            onJobDelete={deleteJob}
+                            onJobEdit={handleOpenEditModal}
+                            onJobDuplicate={duplicateJob}
+                          />
+                        ))}
+                    </DraggableColumn>
+                  );
+                })}
               </div>
               <ScrollBar orientation="horizontal" />
             </ScrollArea>
@@ -1000,6 +1292,9 @@ export function JobBoard() {
             onJobDelete={deleteJob}
             onStatusChange={moveJob}
             onJobEdit={handleOpenEditModal}
+            onJobDuplicate={duplicateJob}
+            currentStatusFilter={filter.status}
+            onStatusFilterChange={handleStatusFilterChange}
           />
         </div>
       )}
@@ -1008,68 +1303,44 @@ export function JobBoard() {
       {renderFloatingActionButton()}
 
       {/* Modals */}
-      <EnhancedJobModal
+      <MinimalisticJobModal
+        jobToEdit={editingJob}
+        initialStatus={initialStatusForModal}
         onAddJob={addJob}
-        open={isAddJobModalOpen}
-        onClose={() => setIsAddJobModalOpen(false)}
+        onEditJob={updateJob}
+        open={isJobModalOpen}
+        onClose={() => {
+          setIsJobModalOpen(false);
+          setEditingJob(null);
+          setInitialStatusForModal(undefined);
+        }}
         jobStates={jobStates}
-      />
-
-      <AddStatusModal
-        open={isAddStatusModalOpen}
-        onOpenChange={setIsAddStatusModalOpen}
-        onAddStatus={handleAddStatus}
-        existingStates={jobStates}
       />
 
       <EnhancedStatusModal
         open={isStatusManagerOpen}
         onOpenChange={setIsStatusManagerOpen}
         jobStates={jobStates}
-        onAddStatus={handleAddStatus}
-        onUpdateStatus={handleUpdateStatus}
-        onDeleteStatus={handleDeleteStatus}
-        onReorderStatuses={handleReorderStatuses}
-      />
-
-      <AdvancedJobExtractor
-        open={isExtractionModalOpen}
-        onOpenChange={setIsExtractionModalOpen}
-        onExtracted={(jobData) => {
-          // Create a new job with the extracted data
-          const newJob: JobData = {
-            id: Date.now().toString(),
-            company: jobData.company || "",
-            position: jobData.position || "",
-            location: jobData.location,
-            salary: jobData.salary,
-            date: new Date().toISOString().split("T")[0],
-            applyDate: new Date().toISOString().split("T")[0],
-            status: jobStates.find((s) => s.isDefault)?.id || jobStates[0].id,
-            description: jobData.description || "",
-            url: jobData.url,
-            tags: jobData.tags || [],
-            workMode: jobData.workMode,
-            priority: 3,
-          }
-
-          addJob(newJob)
-          setIsExtractionModalOpen(false)
+        onAddStatus={(status) => {
+          const updatedStates = [...jobStates, status].sort((a, b) => a.order - b.order);
+          setJobStates(updatedStates);
+        }}
+        onUpdateStatus={(status) => {
+          const updatedStates = jobStates.map(s => s.id === status.id ? status : s);
+          setJobStates(updatedStates);
+        }}
+        onDeleteStatus={(statusId) => {
+          const updatedStates = jobStates.filter(s => s.id !== statusId);
+          setJobStates(updatedStates);
+        }}
+        onReorderStatuses={setJobStates}
+        onRestoreDefaults={() => {
+          // Default implementation
+          const defaultState = jobStates.find(s => s.isDefault)?.id || jobStates[0].id;
+          setJobStates([...defaultJobStates]);
+          return defaultState;
         }}
       />
-
-      {editingJob && (
-        <EnhancedJobModal
-          jobToEdit={editingJob}
-          onEditJob={updateJob}
-          open={isEditJobModalOpen}
-          onClose={() => {
-            setIsEditJobModalOpen(false)
-            setEditingJob(null)
-          }}
-          jobStates={jobStates}
-        />
-      )}
     </div>
   )
 }
