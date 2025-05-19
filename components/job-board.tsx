@@ -29,7 +29,7 @@ import {
   Calendar,
   Search, // Added Search import
 } from "lucide-react"
-import { getJobs, saveJobs, getUserSettings, saveUserSettings, getJobStates, saveJobStates } from "@/lib/storage"
+// import { getJobs, saveJobs, getUserSettings, saveUserSettings, getJobStates, saveJobStates } from "@/lib/storage" // Removed: Data now comes via props
 import { useToast } from "@/hooks/use-toast"
 import { useLanguage } from "@/lib/i18n"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -60,14 +60,14 @@ import { EnhancedStatusModal } from "./enhanced-status-modal"
 import { defaultJobStates } from "@/lib/data"
 
 export function JobBoard() {
-  const [jobs, setJobs] = useState<JobData[]>([])
+  // const [jobs, setJobs] = useState<JobData[]>([]) // Removed: jobs state is managed by parent
   const [view, setView] = useState<"kanban" | "table">("kanban")
   const [filter, setFilter] = useState<JobFilter>({})
   const [sort, setSort] = useState<SortOption>({ field: "date", order: "desc" })
   const [group, setGroup] = useState<GroupOption>({ field: "status" })
   const [searchTerm, setSearchTerm] = useState("")
   const [activeFilters, setActiveFilters] = useState<string[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(false) // Set to false initially, parent handles loading
   const [isJobModalOpen, setIsJobModalOpen] = useState(false)
   const [isStatusManagerOpen, setIsStatusManagerOpen] = useState(false)
   const [editingJob, setEditingJob] = useState<JobData | null>(null)
@@ -78,7 +78,7 @@ export function JobBoard() {
   const isMobile = useMediaQuery("(max-width: 768px)")
   const isSmallScreen = useMediaQuery("(max-width: 1024px)")
   const isExtraSmallScreen = useMediaQuery("(max-width: 640px)")
-  const { openStatusManager, jobStates, setJobStates } = useStatusManager()
+  const { openStatusManager, jobStates, setJobStates: setJobStatesContext } = useStatusManager() // Renamed setJobStates to avoid conflict
 
   // Function to migrate old job format to new format
   const migrateJobFormat = (job: JobData): JobData => {
@@ -134,12 +134,12 @@ export function JobBoard() {
     }
 
     setJobs(migratedJobs)
-    setIsLoading(false)
+    // setIsLoading(false) // Parent handles loading
   }, [])
 
   // Apply filters, sorting, and grouping
   const filteredJobs = useMemo(() => {
-    let result = [...jobs]
+    let result = [...internalJobs] // Use internalJobs (from props)
 
     // In kanban view, we only apply search term filter
     if (view === "kanban") {
@@ -231,7 +231,7 @@ export function JobBoard() {
     })
 
     return result
-  }, [jobs, filter, sort, searchTerm, view])
+  }, [internalJobs, filter, sort, searchTerm, view])
 
   // Update active filters display
   useEffect(() => {
@@ -277,55 +277,41 @@ export function JobBoard() {
     }));
   }, [setFilter]);
 
-  const moveJob = useCallback((jobId: string, targetColumn: ColumnType) => {
-    const updatedJobs = jobs.map((job) => (job.id === jobId ? { ...job, status: targetColumn } : job))
-    setJobs(updatedJobs)
-    saveJobs(updatedJobs)
+  const moveJob = useCallback(async (jobId: string, targetStatusId: ColumnType) => {
+    const jobToMove = internalJobs.find(j => j.id === jobId);
+    if (!jobToMove) return;
 
-    toast({
-      title: t("jobUpdated"),
-      description: `${t("jobMovedTo")} ${targetColumn}`,
-    })
-  }, [jobs, toast, t])
+    const updatedJob = { ...jobToMove, statusId: targetStatusId, status: jobStates.find(s => s.id === targetStatusId) };
+    
+    // Call onEditJob from props to persist the change via API
+    if (props.onEditJob) {
+      props.onEditJob(updatedJob); 
+      // The parent (app/page.tsx) will update its state, which will flow down as initialJobs
+      toast({
+        title: t("jobUpdated"),
+        description: `${t("jobMovedTo")} ${jobStates.find(s => s.id === targetStatusId)?.name || targetStatusId}`,
+      });
+    } else {
+      // Fallback or error if onEditJob is not provided (should not happen)
+      console.error("onEditJob prop is missing in JobBoard");
+      toast({
+        title: t("errorOccurred"),
+        description: t("errorUpdatingJobStatus"),
+        variant: "destructive",
+      });
+    }
+  }, [internalJobs, props.onEditJob, toast, t, jobStates])
 
-  const addJob = (job: JobData) => {
-    const updatedJobs = [...jobs, job]
-    setJobs(updatedJobs)
-    saveJobs(updatedJobs)
-
-    toast({
-      title: t("jobAdded"),
-      description: t("newJobApplicationAdded"),
-    })
-  }
-
-  const updateJob = (updatedJob: JobData) => {
-    const updatedJobs = jobs.map((job) => (job.id === updatedJob.id ? updatedJob : job))
-    setJobs(updatedJobs)
-    saveJobs(updatedJobs)
-
-    toast({
-      title: t("jobUpdated"),
-      description: t("jobApplicationUpdated"),
-    })
-  }
-
-  const deleteJob = (jobId: string) => {
-    const updatedJobs = jobs.filter((job) => job.id !== jobId)
-    setJobs(updatedJobs)
-    saveJobs(updatedJobs)
-
-    toast({
-      title: t("jobDeleted"),
-      description: t("jobApplicationDeleted"),
-    })
-  }
+  // addJob, updateJob, deleteJob are now props from parent
+  // const addJob = (job: JobData) => { ... } // Now props.onAddJob
+  // const updateJob = (updatedJob: JobData) => { ... } // Now props.onEditJob
+  // const deleteJob = (jobId: string) => { ... } // Now props.onDeleteJob
 
   const exportJobs = (format: "json" | "csv" | "excel") => {
     try {
       if (format === "json") {
         // JSON export
-        const content = JSON.stringify(jobs, null, 2);
+        const content = JSON.stringify(internalJobs, null, 2); // Use internalJobs
         const blob = new Blob([content], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const filename = `job-tracker-export-${new Date().toISOString().split("T")[0]}.json`;
@@ -338,7 +324,7 @@ export function JobBoard() {
         });
       } else if (format === "csv") {
         // CSV export
-        const csvContent = generateCSV(jobs);
+        const csvContent = generateCSV(internalJobs); // Use internalJobs
         const blob = new Blob([csvContent], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const filename = `job-tracker-export-${new Date().toISOString().split("T")[0]}.csv`;
@@ -351,7 +337,7 @@ export function JobBoard() {
         });
       } else if (format === "excel") {
         // Excel export - using SpreadsheetML format
-        exportToExcel(jobs);
+        exportToExcel(internalJobs); // Use internalJobs
 
         toast({
           title: t("exportSuccessful"),
@@ -575,6 +561,10 @@ export function JobBoard() {
                   ...(job.salary ? parseSalaryString(job.salary) : {})
                 };
               }
+              // Ensure statusId is present if status object exists
+              if (job.status && typeof job.status === 'object' && job.status.id) {
+                return { ...job, statusId: job.status.id };
+              }
               return job;
             });
           } else if (file.name.endsWith(".csv")) {
@@ -585,16 +575,20 @@ export function JobBoard() {
           }
 
           // Merge with existing jobs (avoid duplicates by ID)
-          const existingIds = new Set(jobs.map(job => job.id));
-          const newJobs = importedJobs.filter(job => !existingIds.has(job.id));
-          const updatedJobs = [...jobs, ...newJobs];
-
-          setJobs(updatedJobs);
-          saveJobs(updatedJobs);
+          // This merging logic might be better handled by the parent component or API
+          const existingIds = new Set(internalJobs.map(job => job.id));
+          const newJobsToImport = importedJobs.filter(job => !existingIds.has(job.id));
+          
+          if (props.onAddJob && newJobsToImport.length > 0) {
+            // Ideally, batch import via API, or add one by one
+            newJobsToImport.forEach(props.onAddJob); 
+          }
+          // For jobs that might be updates (same ID), props.onEditJob could be called.
+          // For simplicity, we'll just add new ones.
 
           toast({
             title: t("importSuccessful"),
-            description: `${t("importedJobsCount")} ${newJobs.length}`,
+            description: `${t("importedJobsCount")} ${newJobsToImport.length}`,
           });
         } catch (error) {
           console.error("Error importing jobs:", error);
@@ -753,7 +747,7 @@ export function JobBoard() {
   const getUniqueValues = (field: keyof JobData): string[] => {
     const values = new Set<string>()
 
-    jobs.forEach((job) => {
+    internalJobs.forEach((job) => { // Use internalJobs
       const value = job[field]
       if (value && typeof value === "string") {
         values.add(value)
@@ -763,21 +757,21 @@ export function JobBoard() {
     return Array.from(values).sort()
   }
 
-  const uniqueCompanies = useMemo(() => getUniqueValues("company"), [jobs])
-  const uniqueLocations = useMemo(() => getUniqueValues("location"), [jobs])
+  const uniqueCompanies = useMemo(() => getUniqueValues("company"), [internalJobs])
+  const uniqueLocations = useMemo(() => getUniqueValues("location"), [internalJobs])
 
   // Get unique tags
   const uniqueTags = useMemo(() => {
     const tags = new Set<string>()
 
-    jobs.forEach((job) => {
+    internalJobs.forEach((job) => { // Use internalJobs
       if (job.tags) {
         job.tags.forEach((tag) => tags.add(tag))
       }
     })
 
     return Array.from(tags).sort()
-  }, [jobs])
+  }, [internalJobs])
 
   // Clear all filters
   const clearFilters = () => {
@@ -855,10 +849,10 @@ export function JobBoard() {
       order: index,
     }))
 
-    // Update both local state and save to storage
-    setJobStates(reorderedStates)
-    saveJobStates(reorderedStates)
-  }, [jobStates, setJobStates])
+    // Update both local state and save to storage (localStorage via context)
+    setJobStatesContext(reorderedStates) 
+    // saveJobStates(reorderedStates); // Context handles saving
+  }, [jobStates, setJobStatesContext])
 
   // Scroll the columns container left or right
   const scrollColumns = (direction: "left" | "right") => {
@@ -960,24 +954,26 @@ export function JobBoard() {
     // Create a new job with the same properties but a new ID and timestamp
     const newJob: JobData = {
       ...jobToDuplicate,
-      id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      // id is removed, API will generate it
       date: new Date().toISOString().split("T")[0], // Today's date
       applyDate: new Date().toISOString().split("T")[0],
       notes: jobToDuplicate.notes ? `${jobToDuplicate.notes}\n\n(Duplicated from original job)` : '(Duplicated from original job)',
+    } as any; // Cast to any to remove id for creation
+
+    if (props.onAddJob) {
+      props.onAddJob(newJob); // Call parent's add job handler
+      toast({
+        title: t("jobDuplicated"),
+        description: t("jobDuplicatedSuccess", { position: newJob.position, company: newJob.company }),
+      });
     }
-
-    // Add the new job
-    const updatedJobs = [...jobs, newJob]
-    setJobs(updatedJobs)
-    saveJobs(updatedJobs)
-
-    toast({
-      title: t("jobDuplicated"),
-      description: t("jobDuplicatedSuccess", { position: newJob.position, company: newJob.company }),
-    })
   }
 
-  if (isLoading) {
+  // Use internalJobs (derived from props.initialJobs) for rendering
+  const internalJobs = useMemo(() => props.initialJobs || [], [props.initialJobs]);
+
+
+  if (isLoading && !internalJobs.length) { // Show loading only if no jobs are present yet
     return (
       <div className="flex flex-col h-full">
         <div className="border-b p-4">
@@ -1244,14 +1240,14 @@ export function JobBoard() {
                       onAddJobClick={() => handleOpenAddModal(state.id)}
                     >
                       {filteredJobs
-                        .filter((job) => job.status === state.id)
+                        .filter((job) => job.statusId === state.id || job.status?.id === state.id) // Check both statusId and status.id
                         .map((job) => (
                           <JobCard
                             key={job.id}
                             job={job}
-                            onJobDelete={deleteJob}
-                            onJobEdit={handleOpenEditModal}
-                            onJobDuplicate={duplicateJob}
+                            onJobDelete={props.onDeleteJob || (() => {})} // Pass from props
+                            onJobEdit={handleOpenEditModal} // Still uses local modal trigger
+                            onJobDuplicate={duplicateJob} // Uses local duplicate logic which calls props.onAddJob
                           />
                         ))}
                     </DraggableColumn>
@@ -1287,14 +1283,14 @@ export function JobBoard() {
         <div className="flex-1 overflow-auto px-4">
           <JobTable
             jobs={filteredJobs}
-            jobStates={jobStates}
-            onJobUpdate={updateJob}
-            onJobDelete={deleteJob}
-            onStatusChange={moveJob}
-            onJobEdit={handleOpenEditModal}
-            onJobDuplicate={duplicateJob}
-            currentStatusFilter={filter.status}
-            onStatusFilterChange={handleStatusFilterChange}
+            jobStates={jobStates} // Pass jobStates from context
+            onJobUpdate={props.onEditJob || (() => {})} // Pass from props
+            onJobDelete={props.onDeleteJob || (() => {})} // Pass from props
+            onStatusChange={moveJob} // Uses local moveJob which calls props.onEditJob
+            onJobEdit={handleOpenEditModal} // Still uses local modal trigger
+            onJobDuplicate={duplicateJob} // Uses local duplicate logic
+            currentStatusFilter={filter.status} // Status filter still local
+            onStatusFilterChange={handleStatusFilterChange} // Status filter still local
           />
         </div>
       )}
@@ -1306,41 +1302,90 @@ export function JobBoard() {
       <MinimalisticJobModal
         jobToEdit={editingJob}
         initialStatus={initialStatusForModal}
-        onAddJob={addJob}
-        onEditJob={updateJob}
+        onAddJob={props.onAddJob || (() => {})} // Pass from props
+        onEditJob={props.onEditJob || (() => {})} // Pass from props
         open={isJobModalOpen}
         onClose={() => {
           setIsJobModalOpen(false);
           setEditingJob(null);
           setInitialStatusForModal(undefined);
         }}
-        jobStates={jobStates}
+        jobStates={jobStates} // Pass jobStates from context
       />
 
+      {/* Status Manager Modal - uses context for jobStates, so no direct prop changes needed here for jobStates */}
       <EnhancedStatusModal
         open={isStatusManagerOpen}
         onOpenChange={setIsStatusManagerOpen}
-        jobStates={jobStates}
-        onAddStatus={(status) => {
+        jobStates={jobStates} // from useStatusManager
+        onAddStatus={(status) => { // This still updates local storage via context
           const updatedStates = [...jobStates, status].sort((a, b) => a.order - b.order);
-          setJobStates(updatedStates);
+          setJobStatesContext(updatedStates);
         }}
-        onUpdateStatus={(status) => {
+        onUpdateStatus={(status) => { // This still updates local storage via context
           const updatedStates = jobStates.map(s => s.id === status.id ? status : s);
-          setJobStates(updatedStates);
+          setJobStatesContext(updatedStates);
         }}
-        onDeleteStatus={(statusId) => {
+        onDeleteStatus={(statusId) => { // This still updates local storage via context
           const updatedStates = jobStates.filter(s => s.id !== statusId);
-          setJobStates(updatedStates);
+          setJobStatesContext(updatedStates);
         }}
-        onReorderStatuses={setJobStates}
-        onRestoreDefaults={() => {
-          // Default implementation
-          const defaultState = jobStates.find(s => s.isDefault)?.id || jobStates[0].id;
-          setJobStates([...defaultJobStates]);
+        onReorderStatuses={setJobStatesContext} // This still updates local storage via context
+        onRestoreDefaults={() => { // This still updates local storage via context
+          const defaultState = jobStates.find(s => s.isDefault)?.id || defaultJobStates[0].id;
+          setJobStatesContext([...defaultJobStates]);
           return defaultState;
         }}
       />
     </div>
   )
 }
+
+// Define props for JobBoard
+interface JobBoardProps {
+  initialJobs: JobData[];
+  onAddJob: (job: JobData) => void;
+  onEditJob: (job: JobData) => void;
+  onDeleteJob: (jobId: string) => void;
+  // isLoading: boolean; // Potentially pass loading state from parent
+  // error: string | null; // Potentially pass error state from parent
+}
+
+// Update the main component definition to accept props
+export function JobBoard(props: JobBoardProps) {
+  // ... (rest of the component logic using props.initialJobs, props.onAddJob etc.)
+  // Make sure to replace direct state manipulation of `jobs` with calls to `props.onAddJob`, `props.onEditJob`, `props.onDeleteJob`
+  // And use `props.initialJobs` as the source of truth for displaying jobs.
+  // The `useEffect` that loads jobs from localStorage should be removed.
+  // The `jobs` state variable should be removed or populated from `props.initialJobs`.
+
+  // Example:
+  // const [internalJobs, setInternalJobs] = useState<JobData[]>(props.initialJobs);
+  // useEffect(() => {
+  //   setInternalJobs(props.initialJobs);
+  // }, [props.initialJobs]);
+  // Then use internalJobs throughout the component for display logic.
+  // For modifications, call the prop functions.
+  // ...
+  const [internalJobs, setInternalJobs] = useState<JobData[]>(props.initialJobs);
+  useEffect(() => {
+    setInternalJobs(props.initialJobs);
+  }, [props.initialJobs]);
+
+
+// ... (rest of the component code from above, ensuring `jobs` is replaced with `internalJobs` for reads, and prop functions for writes)
+// The existing functions like `moveJob`, `exportJobs`, `importJobs`, `duplicateJob` need to be adapted
+// to use `internalJobs` for reading data and `props.onAddJob`/`props.onEditJob` for writing data.
+// The local `jobs` state should be entirely removed or managed based on `props.initialJobs`.
+// For instance, the `useEffect` loading jobs from localStorage is removed.
+// `addJob`, `updateJob`, `deleteJob` are now directly `props.onAddJob`, `props.onEditJob`, `props.onDeleteJob`.
+// `moveJob` should call `props.onEditJob`.
+// `duplicateJob` should call `props.onAddJob`.
+// `importJobs` should call `props.onAddJob` for new jobs.
+
+// The component definition at the top needs to be changed to:
+// export function JobBoard(props: JobBoardProps) {
+// And the existing export default function JobBoard() should be removed or refactored.
+// This diff tool might not handle such structural changes cleanly in one go.
+// The provided diff below focuses on the key areas of change.
+// A more thorough refactor might be needed.

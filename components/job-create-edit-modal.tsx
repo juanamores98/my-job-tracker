@@ -267,35 +267,78 @@ export function JobCreateEditModal({
     setIsSaving(true)
 
     try {
-      // Generate ID if not editing
-      const jobData: JobData = {
-        id: formData.id || Date.now().toString(),
-        company: formData.company || "",
-        position: formData.position || "",
-        status: formData.status || "wishlist",
-        ...formData,
-      } as JobData
+    setIsSaving(true)
 
-      if (isEditMode && onEditJob) {
-        onEditJob(jobData)
+    // Prepare payload, ensuring statusId is used for the status field
+    // and removing 'id' for new jobs.
+    const { id, status, ...payloadWithoutIdOrStatus } = formData;
+    const apiPayload: any = {
+      ...payloadWithoutIdOrStatus,
+      company: formData.company || "", // Ensure required fields are not undefined
+      position: formData.position || "", // Ensure required fields are not undefined
+      statusId: formData.status, // formData.status should hold the ID of the JobState
+    };
+
+    // Remove undefined fields from payload to avoid sending them
+    Object.keys(apiPayload).forEach(key => {
+      if (apiPayload[key] === undefined || apiPayload[key] === null || apiPayload[key] === '') {
+        // Keep tags as an empty array if it's empty, don't delete
+        if (key === 'tags' && Array.isArray(apiPayload[key]) && apiPayload[key].length === 0) {
+          // do nothing
+        } else if (key !== 'tags') { // allow empty strings for non-tag fields if desired by schema, but generally remove null/undefined
+          delete apiPayload[key];
+        }
+      }
+    });
+    
+    // Ensure numeric fields are numbers or undefined
+    if (apiPayload.salaryMin !== undefined) apiPayload.salaryMin = Number(apiPayload.salaryMin);
+    if (apiPayload.salaryMax !== undefined) apiPayload.salaryMax = Number(apiPayload.salaryMax);
+    if (apiPayload.priority !== undefined) apiPayload.priority = Number(apiPayload.priority);
+
+
+    try {
+      let response;
+      let resultJobData: JobData;
+
+      if (isEditMode && onEditJob && formData.id) {
+        response = await fetch(`/api/jobs/${formData.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(apiPayload),
+        });
+        resultJobData = await response.json();
+        if (!response.ok) {
+          throw new Error(resultJobData.message || t("errorUpdatingJob"));
+        }
+        onEditJob(resultJobData); // Call prop with API response
         toast({
           title: t("jobUpdated"),
-          description: t("jobUpdatedSuccess", { company: jobData.company, position: jobData.position }),
-        })
+          description: t("jobUpdatedSuccess", { company: resultJobData.company, position: resultJobData.position }),
+        });
       } else {
-        onAddJob(jobData)
+        response = await fetch("/api/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(apiPayload),
+        });
+        resultJobData = await response.json();
+        if (!response.ok) {
+          throw new Error(resultJobData.message || t("errorAddingJob"));
+        }
+        onAddJob(resultJobData); // Call prop with API response
         toast({
           title: t("jobAdded"),
-          description: t("jobAddedSuccess", { company: jobData.company, position: jobData.position }),
-        })
+          description: t("jobAddedSuccess", { company: resultJobData.company, position: resultJobData.position }),
+        });
       }
 
-      handleOpenChange(false)
-    } catch (error) {
-      console.error("Error saving job:", error)
+      handleOpenChange(false);
+    } catch (error: any) {
+      console.error("Error saving job:", error);
       toast({
         title: t("errorOccurred"),
-        description: t("errorSavingJob"),
+        description: error.message || t("errorSavingJob"),
         variant: "destructive",
       })
     } finally {

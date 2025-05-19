@@ -113,6 +113,13 @@ export function JobCard({ job, onJobDelete, onJobEdit, onJobDuplicate }: JobCard
           )}
           aria-label={`${job.position} at ${job.company}`} // Improved accessibility
       >
+        {/* Display Status Name if available */}
+        {job.status?.name && (
+           <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-medium z-10" style={{ backgroundColor: job.status.color || '#ccc', color: job.status.color && job.status.color !== '#ffffff' && job.status.color !== '#fff' ? 'white' : 'black' }}>
+            {job.status.name}
+          </div>
+        )}
+        
         {/* Follow-up indicator */}
         {(isFollowUpDue() || isFollowUpApproaching()) && (
           <div className={cn(
@@ -124,7 +131,7 @@ export function JobCard({ job, onJobDelete, onJobEdit, onJobDuplicate }: JobCard
         )}
 
         {/* Card Content */}
-        <div className="p-3 relative">
+        <div className="p-3 relative pt-8"> {/* Added pt-8 to make space for status badge */}
           <div className="absolute -left-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-70 transition-opacity cursor-grab active:cursor-grabbing">
             <GripVertical className="h-5 w-5 text-muted-foreground" />
           </div>

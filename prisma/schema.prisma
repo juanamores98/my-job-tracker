@@ -1,0 +1,96 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  password      String
+  name          String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  jobs          Job[]
+  resumes       Resume[]
+  coverLetters  CoverLetter[]
+}
+
+model Job {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  company        String
+  position       String
+  location       String?
+  url            String?
+  statusId       String
+  status         JobState  @relation(fields: [statusId], references: [id])
+  date           DateTime?
+  applyDate      DateTime?
+  salaryMin      Int?
+  salaryMax      Int?
+  salaryCurrency String?   @db.VarChar(3)
+  workMode       WorkMode?
+  priority       Int?      @default(3) // Assuming validation (min:0, max:5) is handled at application level
+  tags           String[]  @default([])
+  description    String?   @db.Text // Use @db.Text for potentially long strings
+  notes          String?   @db.Text // Use @db.Text for potentially long strings
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model JobState {
+  id        String   @id @default(cuid())
+  name      String
+  color     String?
+  order     Int      @default(0)
+  isDefault Boolean  @default(false)
+  isSystem  Boolean  @default(false)
+  userId    String?  // Null for system states, set for user-specific states
+  user      User?    @relation(fields: [userId], references: [id])
+  jobs      Job[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Resume {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  title        String
+  originalName String
+  storagePath  String
+  fileType     String?
+  fileSize     Int?
+  lastUpdated  DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model CoverLetter {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  title        String
+  originalName String?
+  storagePath  String
+  fileType     String?
+  fileSize     Int?
+  lastUpdated  DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+enum WorkMode {
+  REMOTE
+  ONSITE
+  HYBRID
+  FLEXIBLE
+}
