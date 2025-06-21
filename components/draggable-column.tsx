@@ -5,6 +5,7 @@ import type React from "react"
 import { useRef } from "react"
 import { useDrag, useDrop } from "react-dnd"
 import { JobColumn } from "./job-column"
+import type { JobData } from "@/lib/types"
 
 interface DraggableColumnProps {
   id: string
@@ -14,10 +15,14 @@ interface DraggableColumnProps {
   type: string
   color: string
   count?: number
-  children: React.ReactNode
+  jobs: JobData[]
+  children?: React.ReactNode
   onDrop: (jobId: string) => void
   onSettingsClick: () => void
   onAddJobClick: (statusId: string) => void
+  onJobEdit?: (job: JobData) => void
+  onJobDelete?: (jobId: string) => void
+  onJobDuplicate?: (job: JobData) => void
 }
 
 export function DraggableColumn({
@@ -28,10 +33,14 @@ export function DraggableColumn({
   type,
   color,
   count,
+  jobs,
   children,
   onDrop,
   onSettingsClick,
   onAddJobClick,
+  onJobEdit,
+  onJobDelete,
+  onJobDuplicate,
 }: DraggableColumnProps) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -123,13 +132,15 @@ export function DraggableColumn({
         type={type}
         color={color}
         count={count}
+        jobs={jobs}
         onDrop={onDrop}
         onSettingsClick={onSettingsClick}
         onAddJobClick={onAddJobClick}
+        onJobEdit={onJobEdit}
+        onJobDelete={onJobDelete}
+        onJobDuplicate={onJobDuplicate}
         isDragging={isDragging}
-      >
-        {children}
-      </JobColumn>
+      />
     </div>
   )
 }

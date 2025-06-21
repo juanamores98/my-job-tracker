@@ -1229,6 +1229,7 @@ export function JobBoard() {
                 style={{ minHeight: "100%" }}
               >
                 {jobStates.map((state, index) => {
+                  const columnJobs = filteredJobs.filter((job) => job.status === state.id);
                   return (
                     <DraggableColumn
                       key={state.id}
@@ -1238,23 +1239,14 @@ export function JobBoard() {
                       title={state.name}
                       type={state.id}
                       color={state.color}
+                      jobs={columnJobs}
                       onDrop={(jobId) => moveJob(jobId, state.id)}
-                      count={filteredJobs.filter((job) => job.status === state.id).length}
                       onSettingsClick={openStatusManager}
                       onAddJobClick={() => handleOpenAddModal(state.id)}
-                    >
-                      {filteredJobs
-                        .filter((job) => job.status === state.id)
-                        .map((job) => (
-                          <JobCard
-                            key={job.id}
-                            job={job}
-                            onJobDelete={deleteJob}
-                            onJobEdit={handleOpenEditModal}
-                            onJobDuplicate={duplicateJob}
-                          />
-                        ))}
-                    </DraggableColumn>
+                      onJobEdit={handleOpenEditModal}
+                      onJobDelete={deleteJob}
+                      onJobDuplicate={duplicateJob}
+                    />
                   );
                 })}
               </div>

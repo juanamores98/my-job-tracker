@@ -1,15 +1,26 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Edit, Trash2, ExternalLink, Star, ChevronDown, MapPin, Calendar, DollarSign, Copy, Filter } from "lucide-react"
+import { Edit, Trash2, ExternalLink, Star, ChevronDown, MapPin, Calendar, DollarSign, Copy, Filter, X, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
 import type { JobData, ColumnType, JobState, JobFilter } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { TagBadge } from "./tag-badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+
+type SortField = "date" | "company" | "position" | "priority" | "salary" | "status" | "location" | "workMode";
+type SortOrder = "asc" | "desc";
+
+interface TableFilters {
+  workMode: string[];
+  priority: number[];
+  dateRange: string;
+  location: string[];
+}
 
 interface JobTableProps {
   jobs: JobData[]
@@ -24,6 +35,16 @@ interface JobTableProps {
 }
 
 export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusChange, onJobEdit, onJobDuplicate, currentStatusFilter, onStatusFilterChange }: JobTableProps) {
+  // Sorting and filtering state
+  const [sortField, setSortField] = useState<SortField>("date");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [filters, setFilters] = useState<TableFilters>({
+    workMode: [],
+    priority: [],
+    dateRange: "all",
+    location: [],
+  });
+
   const getStateColor = (stateId: string): string => {
     const state = jobStates.find((s) => s.id === stateId)
     return state?.color || "#3b82f6"
@@ -61,75 +82,407 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
     }).format(date)
   }
 
+  // Get unique filter options
+  const filterOptions = useMemo(() => {
+    const workModes = Array.from(new Set(jobs.map(job => job.workMode).filter(Boolean))).sort();
+    const priorities = Array.from(new Set(jobs.map(job => job.priority).filter(p => p !== undefined))).sort((a, b) => (b || 0) - (a || 0));
+    const locations = Array.from(new Set(jobs.map(job => job.location).filter(Boolean))).sort();
+    return { workModes, priorities, locations };
+  }, [jobs]);
+
+  // Apply sorting and filtering to jobs
+  const sortedAndFilteredJobs = useMemo(() => {
+    let filteredJobs = [...jobs];
+
+    // Apply work mode filter
+    if (filters.workMode.length > 0) {
+      filteredJobs = filteredJobs.filter(job => job.workMode && filters.workMode.includes(job.workMode));
+    }
+
+    // Apply priority filter
+    if (filters.priority.length > 0) {
+      filteredJobs = filteredJobs.filter(job => job.priority !== undefined && filters.priority.includes(job.priority));
+    }
+
+    // Apply location filter
+    if (filters.location.length > 0) {
+      filteredJobs = filteredJobs.filter(job => job.location && filters.location.includes(job.location));
+    }
+
+    // Apply date range filter
+    if (filters.dateRange !== "all") {
+      const now = new Date();
+      const cutoffDate = new Date();
+      
+      switch (filters.dateRange) {
+        case "last7days":
+          cutoffDate.setDate(now.getDate() - 7);
+          break;
+        case "last30days":
+          cutoffDate.setDate(now.getDate() - 30);
+          break;
+        case "last90days":
+          cutoffDate.setDate(now.getDate() - 90);
+          break;
+        case "lastYear":
+          cutoffDate.setFullYear(now.getFullYear() - 1);
+          break;
+      }
+      
+      if (filters.dateRange !== "all") {
+        filteredJobs = filteredJobs.filter(job => {
+          if (!job.date) return false;
+          const jobDate = new Date(job.date);
+          return jobDate >= cutoffDate;
+        });
+      }
+    }
+
+    // Apply sorting
+    filteredJobs.sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (sortField) {
+        case "date":
+          aValue = new Date(a.date || "1970-01-01").getTime();
+          bValue = new Date(b.date || "1970-01-01").getTime();
+          break;
+        case "company":
+          aValue = a.company.toLowerCase();
+          bValue = b.company.toLowerCase();
+          break;
+        case "position":
+          aValue = a.position.toLowerCase();
+          bValue = b.position.toLowerCase();
+          break;
+        case "priority":
+          aValue = a.priority || 0;
+          bValue = b.priority || 0;
+          break;
+        case "salary":
+          aValue = a.salaryMax || a.salaryMin || 0;
+          bValue = b.salaryMax || b.salaryMin || 0;
+          break;
+        case "status":
+          aValue = getStateName(a.status).toLowerCase();
+          bValue = getStateName(b.status).toLowerCase();
+          break;
+        case "location":
+          aValue = (a.location || "").toLowerCase();
+          bValue = (b.location || "").toLowerCase();
+          break;
+        case "workMode":
+          aValue = (a.workMode || "").toLowerCase();
+          bValue = (b.workMode || "").toLowerCase();
+          break;
+        default:
+          return 0;
+      }
+
+      if (aValue < bValue) return sortOrder === "asc" ? -1 : 1;
+      if (aValue > bValue) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return filteredJobs;
+  }, [jobs, filters, sortField, sortOrder, jobStates]);
+
+  const handleSortChange = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortOrder("desc");
+    }
+  };
+
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) return <ArrowUpDown className="h-3 w-3" />;
+    return sortOrder === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+  };
+
+  const toggleFilter = (filterType: keyof Omit<TableFilters, 'dateRange'>, value: string | number) => {
+    setFilters(prev => {
+      const currentArray = prev[filterType] as (string | number)[];
+      return {
+        ...prev,
+        [filterType]: currentArray.includes(value)
+          ? currentArray.filter(v => v !== value)
+          : [...currentArray, value]
+      };
+    });
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      workMode: [],
+      priority: [],
+      dateRange: "all",
+      location: [],
+    });
+    onStatusFilterChange(undefined);
+  };
+
+  const hasActiveFilters = filters.workMode.length > 0 || filters.priority.length > 0 || filters.location.length > 0 || filters.dateRange !== "all" || (currentStatusFilter && currentStatusFilter.length > 0);
+
+  const SortableHeader = ({ field, children, className }: { field: SortField; children: React.ReactNode; className?: string }) => (
+    <TableHead className={className}>
+      <Button
+        variant="ghost"
+        className="h-auto p-0 font-semibold justify-start hover:bg-transparent"
+        onClick={() => handleSortChange(field)}
+      >
+        <div className="flex items-center gap-1">
+          {children}
+          {getSortIcon(field)}
+        </div>
+      </Button>
+    </TableHead>
+  );
+
   return (
     <>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-semibold">Job Applications</h2>
+      <div className="flex flex-col gap-4 mb-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-semibold">Job Applications</h2>
+        </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="ml-auto">
-              <Filter className="mr-2 h-4 w-4" />
-              {currentStatusFilter && currentStatusFilter.length > 0
-                ? `Status: ${getStateName(currentStatusFilter[0])}`
-                : "Filter by Status"}
-              <ChevronDown className="ml-2 h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => onStatusFilterChange(undefined)}
-              className={(!currentStatusFilter || currentStatusFilter.length === 0) ? "bg-accent" : ""}
-            >
-              All Statuses
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            {jobStates.map(state => (
+        {/* Filter Controls */}
+        <div className="flex flex-wrap gap-3">
+          {/* Status Filter */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className={cn((currentStatusFilter && currentStatusFilter.length > 0) && "bg-primary/10 text-primary")}>
+                Status
+                {currentStatusFilter && currentStatusFilter.length > 0 && (
+                  <Badge variant="secondary" className="ml-2 h-4 w-4 rounded-full p-0 flex items-center justify-center text-xs">
+                    1
+                  </Badge>
+                )}
+                <ChevronDown className="ml-2 h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuLabel>Job Status</DropdownMenuLabel>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
-                key={state.id}
-                onClick={() => onStatusFilterChange(state.id)}
-                className={(currentStatusFilter && currentStatusFilter.includes(state.id)) ? "bg-accent" : ""}
+                onClick={() => onStatusFilterChange(undefined)}
+                className={(!currentStatusFilter || currentStatusFilter.length === 0) ? "bg-accent" : ""}
               >
-                <Badge
-                  className="px-2 py-0.5 text-xs font-medium mr-2 flex items-center gap-1.5"
-                  style={{
-                    backgroundColor: `${state.color}20`,
-                    color: state.color,
-                    borderColor: `${state.color}40`,
-                  }}
-                >
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: state.color }} />
-                  {state.name}
-                </Badge>
+                <div className="flex items-center justify-between w-full">
+                  <span>All Statuses</span>
+                  {(!currentStatusFilter || currentStatusFilter.length === 0) && <X className="h-3 w-3" />}
+                </div>
               </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <DropdownMenuSeparator />
+              {jobStates.map(state => (
+                <DropdownMenuItem
+                  key={state.id}
+                  onClick={() => onStatusFilterChange(state.id)}
+                  className={(currentStatusFilter && currentStatusFilter.includes(state.id)) ? "bg-accent" : ""}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: state.color }} />
+                      <span>{state.name}</span>
+                    </div>
+                    {(currentStatusFilter && currentStatusFilter.includes(state.id)) && <X className="h-3 w-3" />}
+                  </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Work Mode Filter */}
+          {filterOptions.workModes.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className={cn(filters.workMode.length > 0 && "bg-primary/10 text-primary")}>
+                  Work Mode
+                  {filters.workMode.length > 0 && (
+                    <Badge variant="secondary" className="ml-2 h-4 w-4 rounded-full p-0 flex items-center justify-center text-xs">
+                      {filters.workMode.length}
+                    </Badge>
+                  )}
+                  <ChevronDown className="ml-2 h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel>Work Mode</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                                 {filterOptions.workModes.map(workMode => (
+                   <DropdownMenuItem
+                     key={workMode}
+                     onClick={() => workMode && toggleFilter('workMode', workMode)}
+                     className={filters.workMode.includes(workMode) ? "bg-accent" : ""}
+                   >
+                     <div className="flex items-center justify-between w-full">
+                       <span className="capitalize">{workMode}</span>
+                       {workMode && filters.workMode.includes(workMode) && <X className="h-3 w-3" />}
+                     </div>
+                   </DropdownMenuItem>
+                 ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {/* Priority Filter */}
+          {filterOptions.priorities.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className={cn(filters.priority.length > 0 && "bg-primary/10 text-primary")}>
+                  Priority
+                  {filters.priority.length > 0 && (
+                    <Badge variant="secondary" className="ml-2 h-4 w-4 rounded-full p-0 flex items-center justify-center text-xs">
+                      {filters.priority.length}
+                    </Badge>
+                  )}
+                  <ChevronDown className="ml-2 h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel>Excitement Level</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {filterOptions.priorities.map(priority => (
+                  <DropdownMenuItem
+                    key={priority}
+                    onClick={() => toggleFilter('priority', priority!)}
+                    className={filters.priority.includes(priority!) ? "bg-accent" : ""}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center gap-2">
+                        <div className="flex">
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <Star
+                              key={i}
+                              className={cn(
+                                "h-3 w-3",
+                                i < (priority || 0) ? "text-yellow-400 fill-yellow-400" : "text-gray-300"
+                              )}
+                            />
+                          ))}
+                        </div>
+                        <span>{priority} star{priority !== 1 ? 's' : ''}</span>
+                      </div>
+                      {filters.priority.includes(priority!) && <X className="h-3 w-3" />}
+                    </div>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {/* Location Filter */}
+          {filterOptions.locations.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className={cn(filters.location.length > 0 && "bg-primary/10 text-primary")}>
+                  Location
+                  {filters.location.length > 0 && (
+                    <Badge variant="secondary" className="ml-2 h-4 w-4 rounded-full p-0 flex items-center justify-center text-xs">
+                      {filters.location.length}
+                    </Badge>
+                  )}
+                  <ChevronDown className="ml-2 h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="max-h-64 overflow-y-auto">
+                <DropdownMenuLabel>Location</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                                 {filterOptions.locations.map(location => (
+                   <DropdownMenuItem
+                     key={location}
+                     onClick={() => location && toggleFilter('location', location)}
+                     className={location && filters.location.includes(location) ? "bg-accent" : ""}
+                   >
+                     <div className="flex items-center justify-between w-full">
+                       <span>{location}</span>
+                       {location && filters.location.includes(location) && <X className="h-3 w-3" />}
+                     </div>
+                   </DropdownMenuItem>
+                 ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {/* Date Range Filter */}
+          <Select value={filters.dateRange} onValueChange={(value) => setFilters(prev => ({ ...prev, dateRange: value }))}>
+            <SelectTrigger className={cn("w-[140px]", filters.dateRange !== "all" && "bg-primary/10 text-primary")}>
+              <SelectValue placeholder="Date Range" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Time</SelectItem>
+              <SelectItem value="last7days">Last 7 days</SelectItem>
+              <SelectItem value="last30days">Last 30 days</SelectItem>
+              <SelectItem value="last90days">Last 90 days</SelectItem>
+              <SelectItem value="lastYear">Last Year</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Clear Filters */}
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" onClick={clearFilters}>
+              Clear Filters
+              <X className="ml-2 h-3 w-3" />
+            </Button>
+          )}
+        </div>
+
+        {/* Results Info */}
+        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+          <span>
+            Showing {sortedAndFilteredJobs.length} of {jobs.length} applications
+          </span>
+          {hasActiveFilters && (
+            <Badge variant="secondary" className="text-xs">
+              Filtered
+            </Badge>
+          )}
+          {sortField && (
+            <Badge variant="outline" className="text-xs">
+              Sorted by {sortField} ({sortOrder === "asc" ? "ascending" : "descending"})
+            </Badge>
+          )}
+        </div>
       </div>
 
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[180px]">Company</TableHead>
-              <TableHead>Position</TableHead>
-              <TableHead className="w-[120px]">Status</TableHead>
-              <TableHead className="w-[120px]">Location</TableHead>
-              <TableHead className="w-[100px]">Date</TableHead>
-              <TableHead className="w-[100px]">Excitement</TableHead>
-              <TableHead className="w-[100px]">Work Mode</TableHead>
+              <SortableHeader field="company" className="w-[180px]">Company</SortableHeader>
+              <SortableHeader field="position">Position</SortableHeader>
+              <SortableHeader field="status" className="w-[120px]">Status</SortableHeader>
+              <SortableHeader field="location" className="w-[120px]">Location</SortableHeader>
+              <SortableHeader field="date" className="w-[100px]">Date</SortableHeader>
+              <SortableHeader field="priority" className="w-[100px]">Excitement</SortableHeader>
+              <SortableHeader field="workMode" className="w-[100px]">Work Mode</SortableHeader>
               <TableHead className="w-[120px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {jobs.length === 0 ? (
+            {sortedAndFilteredJobs.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} className="h-24 text-center">
-                  No jobs found. Add your first job application!
+                  {hasActiveFilters ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <Filter className="h-8 w-8 text-muted-foreground/40" />
+                      <div>
+                        <p className="font-medium">No jobs match your filters</p>
+                        <p className="text-sm text-muted-foreground">Try adjusting your filter criteria</p>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={clearFilters}>
+                        Clear Filters
+                      </Button>
+                    </div>
+                  ) : (
+                    "No jobs found. Add your first job application!"
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
-              jobs.map((job) => (
+              sortedAndFilteredJobs.map((job) => (
                 <TableRow key={job.id} className="group hover:bg-card hover:shadow-sm border-b">
                   <TableCell className="font-medium">
                     <div className="flex flex-col">

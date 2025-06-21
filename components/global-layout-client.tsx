@@ -6,6 +6,7 @@ import type React from "react"
 import { Sidebar } from "@/components/sidebar"
 // Removed DashboardHeader import
 import { DataMigrationClient } from "@/components/data-migration-client"
+import { Toaster } from "@/components/ui/toaster"
 
 interface GlobalLayoutClientProps {
   children: React.ReactNode
@@ -27,6 +28,7 @@ export function GlobalLayoutClient({ children }: GlobalLayoutClientProps) {
           {children}
         </div>
       </main>
+      <Toaster />
     </div>
   )
 }
