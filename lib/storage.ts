@@ -1,4 +1,15 @@
-import type { JobData, ResumeData, CoverLetterData, UserProfile, UserSettings, JobStatistics, JobState, WorkMode } from "./types"
+import type {
+  JobData,
+  ResumeData,
+  CoverLetterData,
+  UserProfile,
+  UserSettings,
+  JobStatistics,
+  JobState,
+  WorkMode,
+  LocalUser,
+  SanitizedUser,
+} from "./types"
 import { initialJobs, defaultJobStates } from "./data"
 
 // Keys for localStorage
@@ -10,19 +21,289 @@ const STORAGE_KEYS = {
   USER_SETTINGS: "job-tracker-user-settings",
   JOB_STATISTICS: "job-tracker-statistics",
   JOB_STATES: "job-tracker-job-states",
+  USERS: "job-tracker-users",
+  ACTIVE_USER: "job-tracker-active-user",
+}
+
+const AUTH_COOKIE_NAME = "job-tracker-auth"
+const GLOBAL_FALLBACK_KEY = "__global"
+
+const isBrowser = () => typeof window !== "undefined"
+
+const getCookie = (name: string): string | null => {
+  if (!isBrowser()) return null
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name.replace(/([.$?*|{}()\\\[\]\\\/\+^])/g, "\\$1")}=([^;]*)`))
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+const setCookie = (name: string, value: string, days = 30) => {
+  if (!isBrowser()) return
+  const expires = new Date()
+  expires.setDate(expires.getDate() + days)
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; expires=${expires.toUTCString()}`
+}
+
+const deleteCookie = (name: string) => {
+  if (!isBrowser()) return
+  document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT`
+}
+
+const readScopedStore = <T,>(key: string): Record<string, T> => {
+  if (!isBrowser()) return {}
+  const raw = localStorage.getItem(key)
+  if (!raw) return {}
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return { [GLOBAL_FALLBACK_KEY]: parsed as unknown as T }
+    }
+    if (parsed && typeof parsed === "object") {
+      return parsed as Record<string, T>
+    }
+  } catch (error) {
+    console.error(`Error parsing stored value for ${key}`, error)
+  }
+
+  return {}
+}
+
+export const getActiveUserId = (): string | null => {
+  if (!isBrowser()) return null
+  const local = localStorage.getItem(STORAGE_KEYS.ACTIVE_USER)
+  if (local) return local
+  const cookie = getCookie(AUTH_COOKIE_NAME)
+  if (cookie) {
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_USER, cookie)
+    return cookie
+  }
+  return null
+}
+
+export const setActiveUserId = (userId: string | null, remember = true) => {
+  if (!isBrowser()) return
+  if (userId) {
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_USER, userId)
+    if (remember) {
+      setCookie(AUTH_COOKIE_NAME, userId)
+    } else {
+      setCookie(AUTH_COOKIE_NAME, userId, 1)
+    }
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_USER)
+    deleteCookie(AUTH_COOKIE_NAME)
+  }
+}
+
+const getScopedValue = <T,>(key: string, fallback: T, options: { persist?: boolean } = {}): T => {
+  if (!isBrowser()) return fallback
+
+  const activeUserId = getActiveUserId()
+  const raw = localStorage.getItem(key)
+
+  if (!activeUserId) {
+    if (!raw) {
+      if (options.persist) {
+        localStorage.setItem(key, JSON.stringify(fallback))
+      }
+      return fallback
+    }
+
+    try {
+      return JSON.parse(raw)
+    } catch (error) {
+      console.error(`Error parsing stored value for ${key}`, error)
+      return fallback
+    }
+  }
+
+  const store = readScopedStore<T>(key)
+  if (store[activeUserId] !== undefined) {
+    return store[activeUserId]
+  }
+
+  const fallbackValue = store[GLOBAL_FALLBACK_KEY] ?? fallback
+
+  if (options.persist) {
+    setScopedValue(key, fallbackValue)
+  }
+
+  return fallbackValue
+}
+
+const setScopedValue = <T,>(key: string, value: T) => {
+  if (!isBrowser()) return
+  const activeUserId = getActiveUserId()
+
+  if (!activeUserId) {
+    localStorage.setItem(key, JSON.stringify(value))
+    return
+  }
+
+  const store = readScopedStore<T>(key)
+  store[activeUserId] = value
+  localStorage.setItem(key, JSON.stringify(store))
+}
+
+// User management
+const createEmptyProfile = (): UserProfile => ({
+  fullName: "",
+  username: "",
+  email: "",
+  skills: [],
+  studies: [],
+  preferences: "",
+})
+
+export const createDefaultSettings = (): UserSettings => ({
+  theme: "system",
+  compactView: false,
+  animations: true,
+  defaultView: "kanban",
+  notifications: {
+    email: {
+      interviewReminders: true,
+      applicationDeadlines: true,
+      weeklySummary: true,
+    },
+    inApp: {
+      statusChanges: true,
+      followUpReminders: true,
+    },
+  },
+  dataManagement: {
+    automaticBackups: true,
+    analytics: true,
+  },
+  language: "en",
+  dateFormat: "MM/DD/YYYY",
+  defaultJobView: "kanban",
+  defaultSortField: "date",
+  defaultSortOrder: "desc",
+  defaultFilters: {},
+  jobStates: defaultJobStates.map((state) => ({ ...state })),
+})
+
+export const getUsers = (): LocalUser[] => {
+  if (!isBrowser()) return []
+  const raw = localStorage.getItem(STORAGE_KEYS.USERS)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return parsed as LocalUser[]
+    }
+  } catch (error) {
+    console.error("Error parsing users", error)
+  }
+  return []
+}
+
+export const saveUsers = (users: LocalUser[]): void => {
+  if (!isBrowser()) return
+  localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users))
+}
+
+export const findUserByUsername = (username: string): LocalUser | undefined =>
+  getUsers().find((user) => user.username.toLowerCase() === username.toLowerCase())
+
+export const findUserByEmail = (email: string): LocalUser | undefined =>
+  getUsers().find((user) => user.email.toLowerCase() === email.toLowerCase())
+
+export const getActiveUser = (): LocalUser | null => {
+  const userId = getActiveUserId()
+  if (!userId) return null
+  return getUsers().find((user) => user.id === userId) ?? null
+}
+
+export const upsertUser = (user: LocalUser): void => {
+  const users = getUsers()
+  const index = users.findIndex((existing) => existing.id === user.id)
+  if (index >= 0) {
+    users[index] = user
+  } else {
+    users.push(user)
+  }
+  saveUsers(users)
+}
+
+export const deleteUserById = (userId: string): void => {
+  const users = getUsers().filter((user) => user.id !== userId)
+  saveUsers(users)
+}
+
+export const getActiveUserProfile = (): UserProfile => {
+  const activeUser = getActiveUser()
+  if (!activeUser) {
+    return createEmptyProfile()
+  }
+
+  return {
+    fullName: activeUser.fullName,
+    username: activeUser.username,
+    email: activeUser.email,
+    phone: activeUser.phone,
+    birthday: activeUser.birthday,
+    preferences: activeUser.preferences,
+    skills: activeUser.skills ?? [],
+    studies: activeUser.studies ?? [],
+    university: activeUser.university,
+    school: activeUser.school,
+    highSchool: activeUser.highSchool,
+    about: activeUser.about,
+    photo: activeUser.photo,
+  }
+}
+
+export const updateActiveUserProfile = (profile: Partial<UserProfile>): LocalUser | null => {
+  const activeUser = getActiveUser()
+  if (!activeUser) return null
+
+  const updatedUser: LocalUser = {
+    ...activeUser,
+    ...profile,
+    skills: profile.skills ?? activeUser.skills ?? [],
+    studies: profile.studies ?? activeUser.studies ?? [],
+    updatedAt: new Date().toISOString(),
+  }
+
+  upsertUser(updatedUser)
+  return updatedUser
+}
+
+export const exportActiveUser = (): SanitizedUser | null => {
+  const activeUser = getActiveUser()
+  if (!activeUser) return null
+  const { passwordHash, ...rest } = activeUser
+  return rest
+}
+
+export const importUserProfile = (profile: UserProfile): SanitizedUser | null => {
+  const activeUser = getActiveUser()
+  if (!activeUser) return null
+
+  const updatedUser: LocalUser = {
+    ...activeUser,
+    ...profile,
+    skills: profile.skills ?? [],
+    studies: profile.studies ?? [],
+    updatedAt: new Date().toISOString(),
+  }
+
+  upsertUser(updatedUser)
+  const { passwordHash, ...rest } = updatedUser
+  return rest
 }
 
 // Jobs
 export const getJobs = (): JobData[] => {
-  if (typeof window === "undefined") return initialJobs
-
-  const storedJobs = localStorage.getItem(STORAGE_KEYS.JOBS)
-  return storedJobs ? JSON.parse(storedJobs) : initialJobs
+  if (!isBrowser()) return initialJobs
+  return getScopedValue<JobData[]>(STORAGE_KEYS.JOBS, initialJobs, { persist: true })
 }
 
 export const saveJobs = (jobs: JobData[]): void => {
-  if (typeof window === "undefined") return
-  localStorage.setItem(STORAGE_KEYS.JOBS, JSON.stringify(jobs))
+  if (!isBrowser()) return
+  setScopedValue(STORAGE_KEYS.JOBS, jobs)
 }
 
 export const addJob = (job: JobData): JobData[] => {
@@ -48,15 +329,14 @@ export const deleteJob = (jobId: string): JobData[] => {
 
 // Job States
 export const getJobStates = (): JobState[] => {
-  if (typeof window === "undefined") return defaultJobStates
-
-  const storedStates = localStorage.getItem(STORAGE_KEYS.JOB_STATES)
-  return storedStates ? JSON.parse(storedStates) : defaultJobStates
+  if (!isBrowser()) return defaultJobStates
+  const states = getScopedValue<JobState[]>(STORAGE_KEYS.JOB_STATES, defaultJobStates, { persist: true })
+  return [...states].sort((a, b) => a.order - b.order)
 }
 
 export const saveJobStates = (states: JobState[]): void => {
-  if (typeof window === "undefined") return
-  localStorage.setItem(STORAGE_KEYS.JOB_STATES, JSON.stringify(states))
+  if (!isBrowser()) return
+  setScopedValue(STORAGE_KEYS.JOB_STATES, states)
 }
 
 export const addJobState = (state: JobState): JobState[] => {
@@ -120,15 +400,13 @@ export const deleteJobState = (stateId: string): { states: JobState[]; jobs: Job
 
 // Resumes
 export const getResumes = (): ResumeData[] => {
-  if (typeof window === "undefined") return []
-
-  const storedResumes = localStorage.getItem(STORAGE_KEYS.RESUMES)
-  return storedResumes ? JSON.parse(storedResumes) : []
+  if (!isBrowser()) return []
+  return getScopedValue<ResumeData[]>(STORAGE_KEYS.RESUMES, [])
 }
 
 // Update the saveResumes function to handle File objects
 export const saveResumes = (resumes: ResumeData[]): void => {
-  if (typeof window === "undefined") return
+  if (!isBrowser()) return
 
   // Create a serializable version of resumes without File objects
   const serializableResumes = resumes.map((resume) => {
@@ -136,7 +414,7 @@ export const saveResumes = (resumes: ResumeData[]): void => {
     return rest
   })
 
-  localStorage.setItem(STORAGE_KEYS.RESUMES, JSON.stringify(serializableResumes))
+  setScopedValue(STORAGE_KEYS.RESUMES, serializableResumes)
 }
 
 // Update the addResume function to handle File objects
@@ -163,15 +441,13 @@ export const deleteResume = (resumeId: string): ResumeData[] => {
 
 // Cover Letters
 export const getCoverLetters = (): CoverLetterData[] => {
-  if (typeof window === "undefined") return []
-
-  const storedLetters = localStorage.getItem(STORAGE_KEYS.COVER_LETTERS)
-  return storedLetters ? JSON.parse(storedLetters) : []
+  if (!isBrowser()) return []
+  return getScopedValue<CoverLetterData[]>(STORAGE_KEYS.COVER_LETTERS, [])
 }
 
 export const saveCoverLetters = (letters: CoverLetterData[]): void => {
-  if (typeof window === "undefined") return
-  localStorage.setItem(STORAGE_KEYS.COVER_LETTERS, JSON.stringify(letters))
+  if (!isBrowser()) return
+  setScopedValue(STORAGE_KEYS.COVER_LETTERS, letters)
 }
 
 export const addCoverLetter = (letter: CoverLetterData): CoverLetterData[] => {
@@ -197,122 +473,56 @@ export const deleteCoverLetter = (letterId: string): CoverLetterData[] => {
 
 // User Profile
 export const getUserProfile = (): UserProfile => {
-  if (typeof window === "undefined") {
-    return {
-      firstName: "John",
-      lastName: "Doe",
-      email: "john.doe@example.com",
-      title: "Frontend Developer",
-      bio: "Frontend developer with 5+ years of experience building responsive web applications with React, TypeScript, and modern CSS frameworks.",
-      skills: ["React", "TypeScript", "Next.js", "Tailwind CSS", "Node.js"],
-      social: {},
-    }
+  if (!isBrowser()) {
+    return createEmptyProfile()
   }
 
-  const storedProfile = localStorage.getItem(STORAGE_KEYS.USER_PROFILE)
-  if (!storedProfile) {
-    const defaultProfile = {
-      firstName: "John",
-      lastName: "Doe",
-      email: "john.doe@example.com",
-      title: "Frontend Developer",
-      bio: "Frontend developer with 5+ years of experience building responsive web applications with React, TypeScript, and modern CSS frameworks.",
-      skills: ["React", "TypeScript", "Next.js", "Tailwind CSS", "Node.js"],
-      social: {},
-    }
-    localStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(defaultProfile))
-    return defaultProfile
-  }
+  const profile = getScopedValue<UserProfile>(STORAGE_KEYS.USER_PROFILE, getActiveUserProfile())
 
-  return JSON.parse(storedProfile)
+  // Ensure arrays exist
+  return {
+    ...createEmptyProfile(),
+    ...profile,
+    skills: profile.skills ?? [],
+    studies: profile.studies ?? [],
+  }
 }
 
 export const saveUserProfile = (profile: UserProfile): void => {
-  if (typeof window === "undefined") return
-  localStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(profile))
+  if (!isBrowser()) return
+  setScopedValue(STORAGE_KEYS.USER_PROFILE, profile)
+  updateActiveUserProfile(profile)
 }
 
 // User Settings
 export const getUserSettings = (): UserSettings => {
-  if (typeof window === "undefined") {
-    return {
-      theme: "system" as "light" | "dark" | "system",
-      compactView: false,
-      animations: true,
-      defaultView: "kanban" as "kanban" | "table" | "calendar",
-      notifications: {
-        email: {
-          interviewReminders: true,
-          applicationDeadlines: true,
-          weeklySummary: true,
-        },
-        inApp: {
-          statusChanges: true,
-          followUpReminders: true,
-        },
-      },
-      dataManagement: {
-        automaticBackups: true,
-        analytics: true,
-      },
-      language: "en",
-      dateFormat: "MM/DD/YYYY",
-      defaultJobView: "kanban" as "kanban" | "table" | "calendar",
-      defaultSortField: "date",
-      defaultSortOrder: "desc" as "asc" | "desc",
-      defaultFilters: {},
-      jobStates: defaultJobStates,
-    }
+  const fallback = createDefaultSettings()
+
+  if (!isBrowser()) {
+    return fallback
   }
 
-  const storedSettings = localStorage.getItem(STORAGE_KEYS.USER_SETTINGS)
-  if (!storedSettings) {
-    const defaultSettings = {
-      theme: "system" as "light" | "dark" | "system",
-      compactView: false,
-      animations: true,
-      defaultView: "kanban" as "kanban" | "table" | "calendar",
-      notifications: {
-        email: {
-          interviewReminders: true,
-          applicationDeadlines: true,
-          weeklySummary: true,
-        },
-        inApp: {
-          statusChanges: true,
-          followUpReminders: true,
-        },
-      },
-      dataManagement: {
-        automaticBackups: true,
-        analytics: true,
-      },
-      language: "en",
-      dateFormat: "MM/DD/YYYY",
-      defaultJobView: "kanban" as "kanban" | "table" | "calendar",
-      defaultSortField: "date",
-      defaultSortOrder: "desc" as "asc" | "desc",
-      defaultFilters: {},
-      jobStates: defaultJobStates,
-    }
-    localStorage.setItem(STORAGE_KEYS.USER_SETTINGS, JSON.stringify(defaultSettings))
-    return defaultSettings
+  const stored = getScopedValue<UserSettings>(STORAGE_KEYS.USER_SETTINGS, fallback, { persist: true })
+
+  const normalized: UserSettings = {
+    ...fallback,
+    ...stored,
+    jobStates:
+      stored.jobStates && stored.jobStates.length > 0
+        ? stored.jobStates
+        : defaultJobStates.map((state) => ({ ...state })),
   }
 
-  const settings = JSON.parse(storedSettings)
-
-  // Ensure job states are present
-  if (!settings.jobStates || settings.jobStates.length === 0) {
-    settings.jobStates = defaultJobStates
-    localStorage.setItem(STORAGE_KEYS.USER_SETTINGS, JSON.stringify(settings))
+  if (!stored.jobStates || stored.jobStates.length === 0) {
+    saveUserSettings(normalized)
   }
 
-  return settings
+  return normalized
 }
 
 export const saveUserSettings = (settings: UserSettings): void => {
-  if (typeof window === "undefined") return
-  localStorage.setItem(STORAGE_KEYS.USER_SETTINGS, JSON.stringify(settings))
+  if (!isBrowser()) return
+  setScopedValue(STORAGE_KEYS.USER_SETTINGS, settings)
 
   // Apply theme change immediately
   if (settings.theme === "dark") {
@@ -336,85 +546,18 @@ export const saveUserSettings = (settings: UserSettings): void => {
 
 // Job Statistics
 export const getJobStatistics = (): JobStatistics => {
-  if (typeof window === "undefined") {
-    return {
-      totalApplications: 24,
-      interviewRate: 33,
-      offerRate: 12.5,
-      averageResponseTime: 7,
-      statusDistribution: {
-        wishlist: 2,
-        applied: 10,
-        interview: 6,
-        offer: 3,
-        rejected: 3,
-      },
-      keywordAnalysis: [
-        { keyword: "React", percentage: 85 },
-        { keyword: "TypeScript", percentage: 72 },
-        { keyword: "Next.js", percentage: 68 },
-        { keyword: "Tailwind CSS", percentage: 65 },
-      ],
-      recentActivity: [
-        {
-          id: "1",
-          type: "applied",
-          description: "Applied to Frontend Developer at Vercel",
-          date: "2 days ago",
-          color: "bg-green-500",
-        },
-        {
-          id: "2",
-          type: "interview",
-          description: "Interview scheduled with Stripe",
-          date: "3 days ago",
-          color: "bg-amber-500",
-        },
-        { id: "3", type: "rejected", description: "Rejected from Netflix", date: "1 week ago", color: "bg-red-500" },
-        {
-          id: "4",
-          type: "wishlist",
-          description: "Added Google to wishlist",
-          date: "1 week ago",
-          color: "bg-blue-500",
-        },
-      ],
-      applicationsByMonth: {},
-      responseRateByCompany: {},
-      topSkillsRequested: {
-        technical: [],
-        soft: [],
-        requirements: [],
-      },
-      averageSalaryRange: {
-        min: 0,
-        max: 0,
-        currency: "USD",
-      },
-      applicationsByWorkMode: {
-        remote: 0,
-        onsite: 0,
-        hybrid: 0,
-        flexible: 0,
-      },
-    }
+  const fallbackStats = calculateStatistics(getJobs())
+
+  if (!isBrowser()) {
+    return fallbackStats
   }
 
-  const storedStats = localStorage.getItem(STORAGE_KEYS.JOB_STATISTICS)
-  if (!storedStats) {
-    // Calculate statistics based on jobs
-    const jobs = getJobs()
-    const stats = calculateStatistics(jobs)
-    localStorage.setItem(STORAGE_KEYS.JOB_STATISTICS, JSON.stringify(stats))
-    return stats
-  }
-
-  return JSON.parse(storedStats)
+  return getScopedValue<JobStatistics>(STORAGE_KEYS.JOB_STATISTICS, fallbackStats)
 }
 
 export const saveJobStatistics = (stats: JobStatistics): void => {
-  if (typeof window === "undefined") return
-  localStorage.setItem(STORAGE_KEYS.JOB_STATISTICS, JSON.stringify(stats))
+  if (!isBrowser()) return
+  setScopedValue(STORAGE_KEYS.JOB_STATISTICS, stats)
 }
 
 export const updateStatistics = (): JobStatistics => {
@@ -620,7 +763,7 @@ export const exportToCSV = (): string => {
   const jobs = prepareJobsForExport(getJobs());
 
   // CSV header with all fields including the new ones
-  let csv = "ID,Company,Position,Location,WorkMode,SalaryMin,SalaryMax,SalaryCurrency,Date,ApplyDate,Status,Notes,URL,Priority,Skills,SoftSkills,Requirements,Description\n"
+  let csv = "ID,Company,Position,Location,WorkMode,SalaryMin,SalaryMax,SalaryCurrency,Date,ApplyDate,Status,Notes,URL,Priority,Skills,SoftSkills,Requirements,Description,ContactEmail,ContactPhone,Studies\n"
 
   // Add each job as a row
   jobs.forEach((job: JobData) => {
@@ -643,12 +786,29 @@ export const exportToCSV = (): string => {
       job.softSkills ? `"${job.softSkills.join(",").replace(/"/g, '""')}"` : "",
       job.requirements ? `"${job.requirements.join(",").replace(/"/g, '""')}"` : "",
       job.description ? `"${job.description.replace(/"/g, '""')}"` : "",
+      job.contactEmail ? `"${job.contactEmail.replace(/"/g, '""')}"` : "",
+      job.contactPhone ? `"${job.contactPhone.replace(/"/g, '""')}"` : "",
+      job.studies ? `"${job.studies.join(",").replace(/"/g, '""')}"` : "",
     ]
 
     csv += row.join(",") + "\n"
   })
 
   return csv
+}
+
+export const exportJobsToJSON = (): string => {
+  const { prepareJobsForExport } = require('./migration');
+  const jobs = prepareJobsForExport(getJobs());
+  return JSON.stringify(jobs, null, 2)
+}
+
+export const exportUserProfileToJSON = (): string => {
+  return JSON.stringify(getUserProfile(), null, 2)
+}
+
+export const exportUserSettingsToJSON = (): string => {
+  return JSON.stringify(getUserSettings(), null, 2)
 }
 
 // Import data
@@ -677,6 +837,53 @@ export const importFromJSON = (jsonData: string): void => {
   } catch (error) {
     console.error("Error importing data:", error)
     throw new Error("Invalid JSON format")
+  }
+}
+
+export const importJobsFromJSON = (jsonData: string): void => {
+  try {
+    const jobs = JSON.parse(jsonData)
+    if (!Array.isArray(jobs)) {
+      throw new Error("Jobs data must be an array")
+    }
+
+    saveJobs(jobs as JobData[])
+    const { migrateJobData } = require('./migration');
+    migrateJobData()
+  } catch (error) {
+    console.error("Error importing jobs JSON", error)
+    throw new Error("Invalid jobs JSON format")
+  }
+}
+
+export const importUserProfileFromJSON = (jsonData: string): void => {
+  try {
+    const profile = JSON.parse(jsonData)
+    saveUserProfile({
+      ...createEmptyProfile(),
+      ...profile,
+      skills: profile?.skills ?? [],
+      studies: profile?.studies ?? [],
+    })
+  } catch (error) {
+    console.error("Error importing user profile", error)
+    throw new Error("Invalid profile JSON format")
+  }
+}
+
+export const importUserSettingsFromJSON = (jsonData: string): void => {
+  try {
+    const settings = JSON.parse(jsonData)
+    saveUserSettings({
+      ...createDefaultSettings(),
+      ...settings,
+      jobStates: settings?.jobStates && settings.jobStates.length > 0
+        ? settings.jobStates
+        : defaultJobStates.map((state: JobState) => ({ ...state })),
+    })
+  } catch (error) {
+    console.error("Error importing user settings", error)
+    throw new Error("Invalid settings JSON format")
   }
 }
 
@@ -832,6 +1039,14 @@ export const importFromCSV = (csvData: string): void => {
                 .split(",")
                 .map((tag) => tag.trim()) || [],
             description: values[17]?.replace(/^"|"$/g, "") || undefined,
+            contactEmail: values[18]?.replace(/^"|"$/g, "") || undefined,
+            contactPhone: values[19]?.replace(/^"|"$/g, "") || undefined,
+            studies:
+              values[20]
+                ?.replace(/^"|"$/g, "")
+                .split(",")
+                .map((tag) => tag.trim())
+                .filter(Boolean) || [],
           }
         } else {
           // New format with separate location and work modality but without skill categories
@@ -859,7 +1074,15 @@ export const importFromCSV = (csvData: string): void => {
             description: values[15]?.replace(/^"|"$/g, "") || undefined,
             // Initialize empty arrays for the new skill categories
             softSkills: [],
-            requirements: []
+            requirements: [],
+            contactEmail: values[16]?.replace(/^"|"$/g, "") || undefined,
+            contactPhone: values[17]?.replace(/^"|"$/g, "") || undefined,
+            studies:
+              values[18]
+                ?.replace(/^"|"$/g, "")
+                .split(",")
+                .map((tag) => tag.trim())
+                .filter(Boolean) || [],
           }
         }
       } else {
@@ -889,7 +1112,15 @@ export const importFromCSV = (csvData: string): void => {
 
           // Initialize empty arrays for the new skill categories
           softSkills: [],
-          requirements: []
+          requirements: [],
+          contactEmail: values[12]?.replace(/^"|"$/g, "") || undefined,
+          contactPhone: values[13]?.replace(/^"|"$/g, "") || undefined,
+          studies:
+            values[14]
+              ?.replace(/^"|"$/g, "")
+              .split(",")
+              .map((tag) => tag.trim())
+              .filter(Boolean) || [],
         }
       }
 

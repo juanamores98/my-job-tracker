@@ -2,7 +2,23 @@
 
 import { useState, useEffect, useRef } from "react"
 import { z } from "zod"
-import { Plus, Star, X, Calendar, MapPin, Link2, Loader2, Briefcase, Info, Edit3, Trash2, Tags } from "lucide-react"
+import {
+  Plus,
+  Star,
+  X,
+  Calendar,
+  MapPin,
+  Link2,
+  Loader2,
+  Briefcase,
+  Info,
+  Edit3,
+  Trash2,
+  Tags,
+  Mail,
+  Phone,
+  GraduationCap,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -47,8 +63,12 @@ const jobSchema = z.object({
   workMode: z.enum(["remote", "onsite", "hybrid", "flexible"]).optional(),
   priority: z.number().min(0).max(5).optional(),
   tags: z.array(z.string()).optional(),
+  studies: z.array(z.string()).optional(),
   description: z.string().optional(),
   notes: z.string().optional(),
+  contactPerson: z.string().optional(),
+  contactEmail: z.string().email("Please enter a valid email").optional().or(z.literal("")),
+  contactPhone: z.string().optional().or(z.literal("")),
 })
 
 interface JobCreateEditModalProps {
@@ -76,12 +96,16 @@ const initialFormData: Partial<JobData> = {
   status: undefined,
   priority: 3,
   tags: [],
+  studies: [],
   description: "",
   notes: "",
   url: "",
   date: new Date().toISOString().split("T")[0],
   applyDate: new Date().toISOString().split("T")[0],
   workMode: "remote",
+  contactEmail: "",
+  contactPhone: "",
+  contactPerson: "",
 }
 
 export function JobCreateEditModal({
@@ -225,6 +249,10 @@ export function JobCreateEditModal({
 
   const handleTagsChange = (tags: string[]) => {
     setFormData({ ...formData, tags })
+  }
+
+  const handleStudiesChange = (studies: string[]) => {
+    setFormData({ ...formData, studies })
   }
 
   const handlePriorityChange = (value: number) => {
@@ -508,7 +536,7 @@ export function JobCreateEditModal({
 
               {/* Status and Dates Section */}
               <div className="space-y-6 rounded-md p-5 bg-muted/10 border">
-                <h3 className="text-sm font-semibold -mt-9 bg-background px-2 w-fit">Status & Dates</h3>
+                <h3 className="text-sm font-semibold -mt-9 bg-background px-2 w-fit">Status &amp; Dates</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
                   <FormField name="status" label="Status" required error={formErrors.status}>
                     <Select
@@ -534,7 +562,7 @@ export function JobCreateEditModal({
                     </Select>
                   </FormField>
 
-                  <FormField name="applyDate" label="Date" error={formErrors.applyDate}>
+                  <FormField name="applyDate" label="Application Date" error={formErrors.applyDate}>
                     <DatePickerField
                       name="applyDate"
                       value={formData.applyDate}
@@ -663,6 +691,92 @@ export function JobCreateEditModal({
                     />
                   </div>
                 </FormField>
+              </div>
+
+              {/* Studies */}
+              <div className="space-y-6 rounded-md p-5 bg-muted/10 border">
+                <h3 className="text-sm font-semibold -mt-9 bg-background px-2 w-fit flex items-center gap-1.5">
+                  <GraduationCap className="h-4 w-4 text-muted-foreground" />
+                  Studies &amp; Education Requirements
+                </h3>
+                <FormField
+                  name="studies"
+                  label=""
+                  error={formErrors.studies}
+                  tip="Add degrees, certifications, or study programs required for this role"
+                >
+                  <div className={cn("p-3 border rounded-md bg-background", formErrors.studies && "border-destructive")}>
+                    <EnhancedTagInput
+                      tags={formData.studies || []}
+                      onTagsChange={handleStudiesChange}
+                      placeholder="Type and press Enter to add studies"
+                    />
+                  </div>
+                </FormField>
+              </div>
+
+              {/* Contact Information */}
+              <div className="space-y-6 rounded-md p-5 bg-muted/10 border">
+                <h3 className="text-sm font-semibold -mt-9 bg-background px-2 w-fit">Contact Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-5">
+                  <FormField
+                    name="contactPerson"
+                    label="Contact Person"
+                    error={formErrors.contactPerson}
+                    tip="Name of the recruiter or hiring manager"
+                  >
+                    <Input
+                      id="contactPerson"
+                      name="contactPerson"
+                      value={formData.contactPerson || ""}
+                      onChange={handleChange}
+                      placeholder="e.g. Jane Doe"
+                      className={cn(formErrors.contactPerson && "border-destructive")}
+                    />
+                  </FormField>
+
+                  <FormField
+                    name="contactEmail"
+                    label="Contact Email"
+                    error={formErrors.contactEmail}
+                    tip="Email address to follow up with"
+                  >
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="contactEmail"
+                        name="contactEmail"
+                        type="email"
+                        value={formData.contactEmail || ""}
+                        onChange={handleChange}
+                        placeholder="name@company.com"
+                        autoComplete="email"
+                        className={cn("pl-9", formErrors.contactEmail && "border-destructive")}
+                      />
+                    </div>
+                  </FormField>
+
+                  <FormField
+                    name="contactPhone"
+                    label="Contact Phone"
+                    error={formErrors.contactPhone}
+                    tip="Direct phone number for the role"
+                  >
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="contactPhone"
+                        name="contactPhone"
+                        type="tel"
+                        value={formData.contactPhone || ""}
+                        onChange={handleChange}
+                        placeholder="e.g. +1 555 123 4567"
+                        autoComplete="tel"
+                        className={cn("pl-9", formErrors.contactPhone && "border-destructive")}
+                      />
+                    </div>
+                  </FormField>
+                </div>
               </div>
 
               {/* Description and Notes */}

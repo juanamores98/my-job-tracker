@@ -21,7 +21,11 @@ import {
   Tags,
   Code,
   Heart,
-  Award
+  Award,
+  Mail,
+  Phone,
+  GraduationCap,
+  UserRound,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -92,8 +96,12 @@ const jobSchema = z.object({
   tags: z.array(z.string()).optional(),
   softSkills: z.array(z.string()).optional(),
   requirements: z.array(z.string()).optional(),
+  studies: z.array(z.string()).optional(),
   description: z.string().optional(),
   notes: z.string().optional(),
+  contactPerson: z.string().optional(),
+  contactEmail: z.string().email("Please enter a valid email").optional().or(z.literal("")),
+  contactPhone: z.string().optional().or(z.literal("")),
 })
 
 interface MinimalisticJobModalProps {
@@ -122,12 +130,16 @@ const initialFormData: Partial<JobData> = {
   skills: [],
   softSkills: [],
   requirements: [],
+  studies: [],
   description: "",
   notes: "",
   url: "",
   date: new Date().toISOString().split("T")[0],
   applyDate: new Date().toISOString().split("T")[0],
   workMode: "onsite",
+  contactPerson: "",
+  contactEmail: "",
+  contactPhone: "",
 }
 
 // Form field component for minimalistic design
@@ -206,7 +218,12 @@ export function MinimalisticJobModal({
       setIsEditMode(true)
       const jobData = { ...jobToEdit }
 
-      // --- Robust Date Handling (Using Local Noon) --- 
+      jobData.studies = jobToEdit.studies ?? []
+      jobData.contactPerson = jobToEdit.contactPerson ?? ""
+      jobData.contactEmail = jobToEdit.contactEmail ?? ""
+      jobData.contactPhone = jobToEdit.contactPhone ?? ""
+
+      // --- Robust Date Handling (Using Local Noon) ---
       let dateStringToUse = jobData.applyDate || jobData.date
       if (dateStringToUse && dateStringToUse.includes('-')) { // Ensure it's a YYYY-MM-DD string
         const [year, month, day] = dateStringToUse.split('-').map(Number)
@@ -427,6 +444,14 @@ export function MinimalisticJobModal({
     }))
   }
 
+  const handleStudiesChange = (studies: string[]) => {
+    setFormData(prev => ({
+      ...prev,
+      studies,
+    }))
+    setTouchedFields(prev => ({ ...prev, studies: true }))
+  }
+
   // Handle job description analysis
   const handleAnalyzeDescription = () => {
     if (!formData.description || formData.description.length < 50) {
@@ -518,12 +543,16 @@ export function MinimalisticJobModal({
         status: initialStatus || initialFormData.status || "wishlist",
         workMode: initialFormData.workMode || "onsite", // Use configured default
         // Explicitly reset any other fields that might have been part of JobData but not in initialFormData
-        id: undefined, 
+        id: undefined,
         salaryMin: undefined,
         salaryMax: undefined,
         followUpDate: undefined,
         // Ensure all fields from JobData not meant to persist are reset
         tags: [], // formData.tags is the specific field for the combined skills input
+        studies: [],
+        contactPerson: "",
+        contactEmail: "",
+        contactPhone: "",
       })
       setFormErrors({})
       setTouchedFields({})
@@ -750,7 +779,7 @@ export function MinimalisticJobModal({
                   {/* Date */}
                   <FormField
                     name="applyDate"
-                    label="Date"
+                    label="Application Date"
                     error={formErrors.applyDate}
                     icon={<Calendar className="h-4 w-4" />}
                   >
@@ -975,6 +1004,95 @@ export function MinimalisticJobModal({
                         ...skillsData.requirements
                       ]}
                     />
+                  </FormField>
+                </div>
+              </div>
+
+              {/* Studies / Education Requirements */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                  <GraduationCap className="h-4 w-4 text-muted-foreground" />
+                  Studies &amp; Education
+                </h3>
+                <FormField
+                  name="studies"
+                  label="Required studies"
+                  error={formErrors.studies}
+                  icon={<GraduationCap className="h-4 w-4" />}
+                >
+                  <div className={cn(
+                    "p-3 border rounded-md bg-background",
+                    formErrors.studies && "border-destructive"
+                  )}>
+                    <EnhancedTagInput
+                      tags={formData.studies || []}
+                      onTagsChange={handleStudiesChange}
+                      placeholder="Type and press Enter to add studies, degrees or certifications"
+                    />
+                  </div>
+                </FormField>
+              </div>
+
+              {/* Contact Information */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-muted-foreground">Contact Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <FormField
+                    name="contactPerson"
+                    label="Contact Person"
+                    error={formErrors.contactPerson}
+                    icon={<UserRound className="h-4 w-4" />}
+                  >
+                    <Input
+                      id="contactPerson"
+                      name="contactPerson"
+                      value={formData.contactPerson || ""}
+                      onChange={handleChange}
+                      placeholder="e.g. Jane Doe"
+                      className={cn(formErrors.contactPerson && "border-destructive")}
+                    />
+                  </FormField>
+
+                  <FormField
+                    name="contactEmail"
+                    label="Contact Email"
+                    error={formErrors.contactEmail}
+                    icon={<Mail className="h-4 w-4" />}
+                  >
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="contactEmail"
+                        name="contactEmail"
+                        type="email"
+                        value={formData.contactEmail || ""}
+                        onChange={handleChange}
+                        placeholder="name@company.com"
+                        autoComplete="email"
+                        className={cn("pl-9", formErrors.contactEmail && "border-destructive")}
+                      />
+                    </div>
+                  </FormField>
+
+                  <FormField
+                    name="contactPhone"
+                    label="Contact Phone"
+                    error={formErrors.contactPhone}
+                    icon={<Phone className="h-4 w-4" />}
+                  >
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="contactPhone"
+                        name="contactPhone"
+                        type="tel"
+                        value={formData.contactPhone || ""}
+                        onChange={handleChange}
+                        placeholder="e.g. +1 555 123 4567"
+                        autoComplete="tel"
+                        className={cn("pl-9", formErrors.contactPhone && "border-destructive")}
+                      />
+                    </div>
                   </FormField>
                 </div>
               </div>

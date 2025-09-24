@@ -41,6 +41,8 @@ export interface JobData {
   // Additional fields
   contactPerson?: string
   contactEmail?: string
+  contactPhone?: string
+  studies?: string[]
   benefits?: string[]
   interviewNotes?: string[]
 }
@@ -76,31 +78,29 @@ export interface CoverLetterData {
 }
 
 export interface UserProfile {
-  firstName: string
-  lastName: string
+  fullName: string
+  username: string
   email: string
-  title: string
-  bio: string
-  skills: string[]
-  avatar?: string
-  social: {
-    linkedin?: string
-    github?: string
-    portfolio?: string
-  }
-  // New fields
-  location?: string
   phone?: string
-  preferredWorkMode?: WorkMode[]
-  targetPositions?: string[]
-  targetIndustries?: string[]
-  targetLocations?: string[]
-  salaryExpectation?: {
-    min?: number
-    max?: number
-    currency?: string
-  }
+  birthday?: string
+  preferences?: string
+  skills: string[]
+  studies: string[]
+  university?: string
+  school?: string
+  highSchool?: string
+  about?: string
+  photo?: string
 }
+
+export interface LocalUser extends UserProfile {
+  id: string
+  passwordHash: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type SanitizedUser = Omit<LocalUser, "passwordHash">
 
 export interface UserSettings {
   theme: "light" | "dark" | "system"

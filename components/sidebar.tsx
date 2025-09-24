@@ -1,13 +1,14 @@
 "use client"
 
 import Link from "next/link"
-import { BarChart3, FileText, Home, Settings, LogOut, Search } from "lucide-react"
+import { BarChart3, FileText, Home, Settings, LogOut } from "lucide-react"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useLanguage } from "@/lib/i18n"
-// Removed Input import
 import { ThemeToggle } from "./theme-toggle"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { useAuth } from "@/lib/contexts/auth-context"
 
 // interface SidebarProps { // Props removed
 //   searchTerm: string
@@ -17,6 +18,16 @@ import { ThemeToggle } from "./theme-toggle"
 export function Sidebar(/*{ searchTerm, onSearchChange }: SidebarProps*/) { // Props removed
   const pathname = usePathname()
   const { t } = useLanguage()
+  const { user, logout } = useAuth()
+
+  const initials = user?.fullName
+    ? user.fullName
+        .split(" ")
+        .map((part) => part.charAt(0))
+        .slice(0, 2)
+        .join("")
+        .toUpperCase()
+    : user?.username?.slice(0, 2).toUpperCase() ?? ""
 
   return (
     <div className="hidden border-r bg-gray-100/40 lg:block dark:bg-gray-800/40 w-64">
@@ -120,12 +131,27 @@ export function Sidebar(/*{ searchTerm, onSearchChange }: SidebarProps*/) { // P
             </TooltipProvider>
           </nav>
         </div>
-        <div className="mt-auto p-4">
+        <div className="mt-auto space-y-3 p-4">
+          <div className="flex items-center gap-3 rounded-lg border border-border/60 bg-background/60 px-3 py-2">
+            <Avatar className="h-9 w-9">
+              {user?.photo ? (
+                <AvatarImage src={user.photo} alt={user.fullName || user.username} />
+              ) : (
+                <AvatarFallback>{initials || ""}</AvatarFallback>
+              )}
+            </Avatar>
+            <div className="flex-1 overflow-hidden">
+              <p className="truncate text-sm font-semibold">{user?.fullName || user?.username}</p>
+              <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
+            </div>
+          </div>
+
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
+                  onClick={logout}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-gray-500 transition-all hover:text-primary dark:text-gray-400"
                 >
                   <LogOut className="h-4 w-4" />

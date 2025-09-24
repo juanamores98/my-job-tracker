@@ -54,6 +54,8 @@
     "react-day-picker": "8.10.1",
     "react-dnd": "latest",
     "react-dnd-html5-backend": "latest",
+    "react-dropzone": "^14.3.7",
+    "react-easy-crop": "^5.0.7",
     "react-dom": "^19",
     "react-hook-form": "^7.54.1",
     "react-resizable-panels": "^2.1.7",
