@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Job Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🗂️</text></svg>">
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">🗂️</div>
+        <div class="titles">
+          <h1 class="app-title">Job Tracker</h1>
+          <p class="subtitle">Kanban for your applications</p>
+        </div>
+      </div>
+      <nav class="user-nav">
+        <button id="btn-open-import" class="btn secondary" aria-haspopup="dialog">Import/Export</button>
+        <div id="auth-unauth" class="auth-unauth">
+          <button id="btn-open-login" class="btn primary" aria-haspopup="dialog">Login</button>
+          <button id="btn-open-register" class="btn" aria-haspopup="dialog">Register</button>
+        </div>
+        <div id="auth-authenticated" class="auth-authenticated hidden">
+          <button id="btn-open-profile" class="btn">Profile</button>
+          <button id="btn-logout" class="btn danger">Logout</button>
+        </div>
+      </nav>
+    </header>
+
+    <main class="app-main">
+      <section class="toolbar">
+        <div class="left-tools">
+          <button id="btn-add-job" class="btn success" aria-haspopup="dialog">+ Add Job</button>
+        </div>
+        <div class="right-tools">
+          <label class="switch" title="Toggle dark mode">
+            <input type="checkbox" id="toggle-theme" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <section id="board" class="board" aria-label="Kanban board">
+        <div class="column" data-status="wishlist" aria-labelledby="col-wishlist-title">
+          <div class="column-header">
+            <h2 id="col-wishlist-title">Wishlist</h2>
+            <button class="btn tiny" data-action="add-job" data-status="wishlist">+</button>
+          </div>
+          <div class="column-body" data-dropzone></div>
+        </div>
+        <div class="column" data-status="applied" aria-labelledby="col-applied-title">
+          <div class="column-header">
+            <h2 id="col-applied-title">Applied</h2>
+            <button class="btn tiny" data-action="add-job" data-status="applied">+</button>
+          </div>
+          <div class="column-body" data-dropzone></div>
+        </div>
+        <div class="column" data-status="interview" aria-labelledby="col-interview-title">
+          <div class="column-header">
+            <h2 id="col-interview-title">Interview</h2>
+            <button class="btn tiny" data-action="add-job" data-status="interview">+</button>
+          </div>
+          <div class="column-body" data-dropzone></div>
+        </div>
+        <div class="column" data-status="rejected" aria-labelledby="col-rejected-title">
+          <div class="column-header">
+            <h2 id="col-rejected-title">Rejected</h2>
+            <button class="btn tiny" data-action="add-job" data-status="rejected">+</button>
+          </div>
+          <div class="column-body" data-dropzone></div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="modal-job" class="modal" aria-modal="true" aria-labelledby="modal-job-title">
+      <form method="dialog" class="modal-content" id="job-form">
+        <header class="modal-header">
+          <h3 id="modal-job-title">Job</h3>
+          <button type="button" class="icon-button" data-close>
+            <span aria-hidden="true">✕</span>
+            <span class="sr-only">Close</span>
+          </button>
+        </header>
+        <div class="modal-body grid-2">
+          <input type="hidden" name="jobId" />
+          <label>Job Name<input name="jobName" required /></label>
+          <label>Company<input name="company" required /></label>
+          <label>Apply Date<input name="applyDate" type="date" /></label>
+          <label>Salary<input name="salary" type="number" inputmode="decimal" placeholder="50000" /></label>
+          <label>Location<input name="location" placeholder="City, Country" /></label>
+          <label>Work Mode
+            <select name="workMode">
+              <option value="remote">Remote</option>
+              <option value="onsite">Onsite</option>
+              <option value="hybrid">Hybrid</option>
+            </select>
+          </label>
+          <label>Status
+            <select name="status">
+              <option value="wishlist">Wishlist</option>
+              <option value="applied">Applied</option>
+              <option value="interview">Interview</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </label>
+          <label>Skills (comma to add)
+            <input name="skills" data-tags placeholder="JavaScript, React" />
+          </label>
+          <label>Studies (comma to add)
+            <input name="studies" data-tags placeholder="BSc CS, MSc" />
+          </label>
+          <label>Contact Email<input name="contactEmail" type="email" /></label>
+          <label>Contact Phone<input name="contactPhone" type="tel" /></label>
+          <label class="full">Job URLs (comma separated)
+            <input name="jobUrls" placeholder="https://company.com/careers,..." />
+          </label>
+          <label class="full">Description<textarea name="description" rows="4"></textarea></label>
+        </div>
+        <footer class="modal-footer">
+          <button value="cancel" class="btn">Cancel</button>
+          <button value="confirm" class="btn primary" id="job-save">Save</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="modal-auth" class="modal" aria-modal="true" aria-labelledby="modal-auth-title">
+      <div class="modal-content">
+        <header class="modal-header">
+          <h3 id="modal-auth-title">Welcome</h3>
+          <button type="button" class="icon-button" data-close>
+            <span aria-hidden="true">✕</span>
+            <span class="sr-only">Close</span>
+          </button>
+        </header>
+        <div class="tabs">
+          <button class="tab active" data-tab="login">Login</button>
+          <button class="tab" data-tab="register">Register</button>
+        </div>
+        <div class="modal-body">
+          <form id="form-login" class="auth-form" data-panel="login">
+            <label>Username or Email<input name="identifier" autocomplete="username" required /></label>
+            <label>Password<input type="password" name="password" autocomplete="current-password" required /></label>
+            <button class="btn primary" type="submit">Login</button>
+          </form>
+          <form id="form-register" class="auth-form hidden" data-panel="register">
+            <label>Full Name<input name="fullName" required /></label>
+            <label>Username<input name="username" autocomplete="username" required /></label>
+            <label>Email<input type="email" name="email" autocomplete="email" required /></label>
+            <label>Phone<input type="tel" name="phone" autocomplete="tel" /></label>
+            <label>Birthday<input type="date" name="birthday" /></label>
+            <label>Password<input type="password" name="password" autocomplete="new-password" required /></label>
+            <label>Confirm Password<input type="password" name="confirmPassword" autocomplete="new-password" required /></label>
+            <button class="btn success" type="submit">Create Account</button>
+          </form>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="modal-profile" class="modal" aria-modal="true" aria-labelledby="modal-profile-title">
+      <form class="modal-content" id="profile-form" method="dialog">
+        <header class="modal-header">
+          <h3 id="modal-profile-title">Your Profile</h3>
+          <button type="button" class="icon-button" data-close>
+            <span aria-hidden="true">✕</span>
+            <span class="sr-only">Close</span>
+          </button>
+        </header>
+        <div class="modal-body grid-2">
+          <div class="avatar-editor">
+            <div class="avatar-drop" id="avatar-drop" aria-label="Upload photo" tabindex="0">
+              <input type="file" id="avatar-input" accept="image/*" hidden />
+              <canvas id="avatar-crop" width="256" height="256" aria-label="Crop preview"></canvas>
+              <div class="avatar-actions">
+                <button type="button" class="btn tiny" id="avatar-upload">Upload</button>
+                <label class="range">Zoom<input type="range" id="avatar-zoom" min="1" max="3" step="0.01" value="1" /></label>
+              </div>
+            </div>
+          </div>
+          <div class="profile-fields">
+            <label>Full Name<input name="fullName" required /></label>
+            <label>Username<input name="username" required /></label>
+            <label>Email<input type="email" name="email" required /></label>
+            <label>Phone<input type="tel" name="phone" /></label>
+            <label>Birthday<input type="date" name="birthday" /></label>
+            <label>University<input name="university" /></label>
+            <label>School<input name="school" /></label>
+            <label>High School<input name="highSchool" /></label>
+            <label>Skills (comma to add)<input name="skills" data-tags /></label>
+            <label>Studies (comma to add)<input name="studies" data-tags /></label>
+            <label class="full">About<textarea name="about" rows="4"></textarea></label>
+            <fieldset class="full">
+              <legend>Preferences</legend>
+              <label class="checkbox"><input type="checkbox" name="prefDark" /> Dark mode</label>
+              <label class="checkbox"><input type="checkbox" name="prefCompact" /> Compact mode</label>
+            </fieldset>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button value="cancel" class="btn">Cancel</button>
+          <button value="confirm" class="btn primary">Save</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="modal-import" class="modal" aria-modal="true" aria-labelledby="modal-import-title">
+      <div class="modal-content">
+        <header class="modal-header">
+          <h3 id="modal-import-title">Import / Export</h3>
+          <button type="button" class="icon-button" data-close>
+            <span aria-hidden="true">✕</span>
+            <span class="sr-only">Close</span>
+          </button>
+        </header>
+        <div class="modal-body grid-2">
+          <section>
+            <h4>Export</h4>
+            <div class="export-buttons">
+              <button class="btn" data-export="user-json">User JSON</button>
+              <button class="btn" data-export="settings-json">Settings JSON</button>
+              <button class="btn" data-export="jobs-json">Jobs JSON</button>
+              <button class="btn" data-export="jobs-csv">Jobs CSV</button>
+            </div>
+          </section>
+          <section>
+            <h4>Import</h4>
+            <div class="import-block">
+              <label class="file">
+                <input type="file" id="import-file" accept=".json,.csv" />
+              </label>
+              <div class="import-targets">
+                <label class="radio"><input type="radio" name="importTarget" value="user" checked /> User</label>
+                <label class="radio"><input type="radio" name="importTarget" value="settings" /> Settings</label>
+                <label class="radio"><input type="radio" name="importTarget" value="jobs" /> Jobs</label>
+              </div>
+              <button class="btn primary" id="btn-run-import">Import</button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </dialog>
+
+    <script type="module" src="/src/app.js"></script>
+  </body>
+  </html>
+
