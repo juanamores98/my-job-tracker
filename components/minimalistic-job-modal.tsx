@@ -735,9 +735,7 @@ export function MinimalisticJobModal({
                             <div className="flex items-center gap-2">
                               <span
                                 className="w-3 h-3 rounded-full inline-block"
-                                dangerouslySetInnerHTML={{
-                                  __html: `<span style="display:block; width:100%; height:100%; border-radius:9999px; background-color:${state.color}"></span>`
-                                }}
+                                style={{ backgroundColor: state.color as string }}
                               />
                               {state.name}
                             </div>

@@ -118,15 +118,15 @@ export async function POST(request: NextRequest) {
 function getExtractorForUrl(url: string): JobBoardExtractor {
   try {
     const urlObj = new URL(url)
-    const hostname = urlObj.hostname.replace('www.', '')
-    
-    // Find matching extractor for the domain
+    const hostname = urlObj.hostname.replace(/^www\./, "")
+
+    // Match exact domain or subdomain of known boards, avoid partial matches
     for (const domain in extractors) {
-      if (hostname.includes(domain)) {
+      if (hostname === domain || hostname.endsWith(`.${domain}`)) {
         return extractors[domain]
       }
     }
-    
+
     // Default to generic extractor
     return genericExtractor
   } catch (error) {

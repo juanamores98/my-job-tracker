@@ -940,8 +940,11 @@ export const analyzeResume = (
     // Reiniciar el regex para cada palabra clave
     keywordRegex.lastIndex = 0
 
-    // Crear un patrón para buscar la palabra clave
-    const keywordPattern = new RegExp(`\\b${keyword}\\b`, "i")
+    // Escapar caracteres especiales de regex en la palabra clave
+    const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+    // Usar límites no alfanuméricos para coincidir palabras con símbolos (e.g., C++, CI/CD)
+    const keywordPattern = new RegExp(`(?:^|\\\W)${escapedKeyword}(?=\\\W|$)`, "i")
 
     if (keywordPattern.test(resumeTextLower)) {
       matchedKeywords.push(keyword)
