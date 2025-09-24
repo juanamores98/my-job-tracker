@@ -4,7 +4,25 @@ import { useState, useMemo } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Edit, Trash2, ExternalLink, Star, ChevronDown, MapPin, Calendar, DollarSign, Copy, Filter, X, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
+import {
+  Edit,
+  Trash2,
+  ExternalLink,
+  Star,
+  ChevronDown,
+  MapPin,
+  Calendar,
+  DollarSign,
+  Copy,
+  Filter,
+  X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Mail,
+  Phone,
+  GraduationCap,
+} from "lucide-react"
 import type { JobData, ColumnType, JobState, JobFilter } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu"
@@ -12,7 +30,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { TagBadge } from "./tag-badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-type SortField = "date" | "company" | "position" | "priority" | "salary" | "status" | "location" | "workMode";
+type SortField = "date" | "applyDate" | "company" | "position" | "priority" | "salary" | "status" | "location" | "workMode";
 type SortOrder = "asc" | "desc";
 
 interface TableFilters {
@@ -147,6 +165,10 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
         case "date":
           aValue = new Date(a.date || "1970-01-01").getTime();
           bValue = new Date(b.date || "1970-01-01").getTime();
+          break;
+        case "applyDate":
+          aValue = new Date(a.applyDate || "1970-01-01").getTime();
+          bValue = new Date(b.applyDate || "1970-01-01").getTime();
           break;
         case "company":
           aValue = a.company.toLowerCase();
@@ -455,16 +477,19 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
               <SortableHeader field="position">Position</SortableHeader>
               <SortableHeader field="status" className="w-[120px]">Status</SortableHeader>
               <SortableHeader field="location" className="w-[120px]">Location</SortableHeader>
-              <SortableHeader field="date" className="w-[100px]">Date</SortableHeader>
+              <SortableHeader field="date" className="w-[120px]">Last Update</SortableHeader>
+              <SortableHeader field="applyDate" className="w-[120px]">Applied</SortableHeader>
               <SortableHeader field="priority" className="w-[100px]">Excitement</SortableHeader>
               <SortableHeader field="workMode" className="w-[100px]">Work Mode</SortableHeader>
+              <TableHead className="w-[160px]">Contact</TableHead>
+              <TableHead className="w-[160px]">Studies</TableHead>
               <TableHead className="w-[120px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedAndFilteredJobs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center">
+                <TableCell colSpan={11} className="h-24 text-center">
                   {hasActiveFilters ? (
                     <div className="flex flex-col items-center gap-2">
                       <Filter className="h-8 w-8 text-muted-foreground/40" />
@@ -580,7 +605,17 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
                     {job.date ? (
                       <div className="flex items-center gap-1 text-sm">
                         <Calendar className="h-3 w-3 text-muted-foreground" />
-                        <span>{formatDate(job.date)}</span>
+                        <span>Updated {formatDate(job.date)}</span>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {job.applyDate ? (
+                      <div className="flex items-center gap-1 text-sm">
+                        <Calendar className="h-3 w-3 text-emerald-500" />
+                        <span>Applied {formatDate(job.applyDate)}</span>
                       </div>
                     ) : (
                       <span className="text-muted-foreground text-sm">—</span>
@@ -604,6 +639,50 @@ export function JobTable({ jobs, jobStates, onJobUpdate, onJobDelete, onStatusCh
                       <Badge className={cn("px-2 py-0.5 text-xs font-medium", workModeColors[job.workMode])}>
                         {job.workMode.charAt(0).toUpperCase() + job.workMode.slice(1)}
                       </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {(job.contactEmail || job.contactPhone) ? (
+                      <div className="flex flex-col gap-1 text-xs">
+                        {job.contactEmail && (
+                          <div className="flex items-center gap-1 text-muted-foreground">
+                            <Mail className="h-3 w-3" />
+                            <a
+                              href={`mailto:${job.contactEmail}`}
+                              className="truncate hover:text-primary"
+                            >
+                              {job.contactEmail}
+                            </a>
+                          </div>
+                        )}
+                        {job.contactPhone && (
+                          <div className="flex items-center gap-1 text-muted-foreground">
+                            <Phone className="h-3 w-3" />
+                            <span>{job.contactPhone}</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {job.studies && job.studies.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {job.studies.slice(0, 2).map((study, index) => (
+                          <Badge key={index} variant="secondary" className="flex items-center gap-1 px-2 py-0.5 text-[11px]">
+                            <GraduationCap className="h-3 w-3" />
+                            <span>{study}</span>
+                          </Badge>
+                        ))}
+                        {job.studies.length > 2 && (
+                          <Badge variant="outline" className="px-2 py-0.5 text-[11px]">
+                            +{job.studies.length - 2}
+                          </Badge>
+                        )}
+                      </div>
                     ) : (
                       <span className="text-muted-foreground text-sm">—</span>
                     )}

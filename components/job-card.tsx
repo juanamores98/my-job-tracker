@@ -2,10 +2,29 @@
 
 import { useState } from "react"
 import { useDrag } from "react-dnd"
-import { Building, Calendar, MapPin, DollarSign, ExternalLink, Edit, Trash2, Star, Briefcase, GripVertical, Copy, Code, Heart, Award } from "lucide-react"
+import {
+  Building,
+  Calendar,
+  MapPin,
+  DollarSign,
+  ExternalLink,
+  Edit,
+  Trash2,
+  Star,
+  Briefcase,
+  GripVertical,
+  Copy,
+  Code,
+  Heart,
+  Award,
+  Mail,
+  Phone,
+  GraduationCap,
+} from "lucide-react"
 import type { JobData } from "@/lib/types"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { TagBadge } from "./tag-badge" // Import new TagBadge
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,
@@ -76,6 +95,12 @@ export function JobCard({ job, onJobDelete, onJobEdit, onJobDuplicate }: JobCard
       day: "numeric",
       year: "numeric",
     }).format(date)
+  }
+
+  const getPhoneHref = (phone?: string) => {
+    if (!phone) return ""
+    const sanitized = phone.replace(/[^0-9+]/g, "")
+    return sanitized ? `tel:${sanitized}` : ""
   }
 
   // Check if follow-up date is today or in the past to add visual indicator
@@ -211,6 +236,25 @@ export function JobCard({ job, onJobDelete, onJobEdit, onJobDuplicate }: JobCard
               </TooltipProvider>
             )}
 
+            {/* Apply Date */}
+            {job.applyDate && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="h-3.5 w-3.5 text-emerald-500" />
+                      <span className="text-muted-foreground">
+                        Applied {formatDate(job.applyDate)}
+                      </span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    <p>Application date</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+
             {/* Date with icon and tooltip */}
             {job.date && (
               <TooltipProvider>
@@ -218,11 +262,11 @@ export function JobCard({ job, onJobDelete, onJobEdit, onJobDuplicate }: JobCard
                   <TooltipTrigger asChild>
                     <div className="flex items-center gap-1.5">
                       <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-muted-foreground">{formatDate(job.date)}</span>
+                      <span className="text-muted-foreground">Updated {formatDate(job.date)}</span>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="text-xs">
-                    <p>Date</p>
+                    <p>Last update</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -256,6 +300,40 @@ export function JobCard({ job, onJobDelete, onJobEdit, onJobDuplicate }: JobCard
               </TooltipProvider>
             )}
           </div>
+
+          {(job.contactEmail || job.contactPhone) && (
+            <div className="mt-2 mb-2 flex flex-col gap-1 text-xs">
+              {job.contactEmail && (
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <Mail className="h-3.5 w-3.5" />
+                  <a
+                    href={`mailto:${job.contactEmail}`}
+                    className="truncate text-muted-foreground hover:text-primary"
+                  >
+                    {job.contactEmail}
+                  </a>
+                </div>
+              )}
+              {job.contactPhone && (
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <Phone className="h-3.5 w-3.5" />
+                  {(() => {
+                    const phoneHref = getPhoneHref(job.contactPhone)
+                    return phoneHref ? (
+                      <a
+                        href={phoneHref}
+                        className="truncate text-muted-foreground hover:text-primary"
+                      >
+                        {job.contactPhone}
+                      </a>
+                    ) : (
+                      <span className="truncate">{job.contactPhone}</span>
+                    )
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Priority Rating */}
           <TooltipProvider>
@@ -359,6 +437,28 @@ export function JobCard({ job, onJobDelete, onJobEdit, onJobDuplicate }: JobCard
               </div>
             );
           })()}
+
+          {job.studies && job.studies.length > 0 && (
+            <div className="mb-3">
+              <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                <GraduationCap className="h-3.5 w-3.5" />
+                <span>Studies</span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {job.studies.slice(0, 3).map((study, index) => (
+                  <Badge key={index} variant="secondary" className="flex items-center gap-1 px-2 py-1 text-[11px]">
+                    <GraduationCap className="h-3 w-3" />
+                    <span className="truncate max-w-[120px]">{study}</span>
+                  </Badge>
+                ))}
+                {job.studies.length > 3 && (
+                  <Badge variant="outline" className="px-2 py-1 text-[11px]">
+                    +{job.studies.length - 3} more
+                  </Badge>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex justify-between items-center mt-3 pt-2 border-t border-border opacity-60 group-hover:opacity-100 transition-opacity duration-200">

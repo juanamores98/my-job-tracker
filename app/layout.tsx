@@ -8,6 +8,7 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { StatusManagerProvider } from "@/lib/contexts/status-manager-context"
 import { GlobalLayoutClient } from "@/components/global-layout-client" // Import the new client component
+import { AuthProvider } from "@/lib/contexts/auth-context"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -28,9 +29,11 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className} suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <StatusManagerProvider>
-            <GlobalLayoutClient>{children}</GlobalLayoutClient>
-          </StatusManagerProvider>
+          <AuthProvider>
+            <StatusManagerProvider>
+              <GlobalLayoutClient>{children}</GlobalLayoutClient>
+            </StatusManagerProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

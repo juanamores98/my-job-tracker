@@ -58,6 +58,7 @@ import { ThemeToggle } from "./theme-toggle"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EnhancedStatusModal } from "./enhanced-status-modal"
 import { defaultJobStates } from "@/lib/data"
+import { useAuth } from "@/lib/contexts/auth-context"
 
 export function JobBoard() {
   const [jobs, setJobs] = useState<JobData[]>([])
@@ -79,6 +80,7 @@ export function JobBoard() {
   const isSmallScreen = useMediaQuery("(max-width: 1024px)")
   const isExtraSmallScreen = useMediaQuery("(max-width: 640px)")
   const { openStatusManager, jobStates, setJobStates } = useStatusManager()
+  const { user } = useAuth()
 
   // Function to migrate old job format to new format
   const migrateJobFormat = (job: JobData): JobData => {
@@ -122,20 +124,24 @@ export function JobBoard() {
   };
 
   useEffect(() => {
-    // Load jobs from localStorage
+    if (!user) {
+      setJobs([])
+      setIsLoading(false)
+      return
+    }
+
+    setIsLoading(true)
     const loadedJobs = getJobs()
 
-    // Migrate jobs to new format if needed
-    const migratedJobs = loadedJobs.map(migrateJobFormat);
+    const migratedJobs = loadedJobs.map(migrateJobFormat)
 
-    // Save migrated jobs if any changes were made
     if (JSON.stringify(loadedJobs) !== JSON.stringify(migratedJobs)) {
-      saveJobs(migratedJobs);
+      saveJobs(migratedJobs)
     }
 
     setJobs(migratedJobs)
     setIsLoading(false)
-  }, [])
+  }, [user])
 
   // Apply filters, sorting, and grouping
   const filteredJobs = useMemo(() => {
@@ -151,6 +157,10 @@ export function JobBoard() {
             job.position.toLowerCase().includes(term) ||
             job.location?.toLowerCase().includes(term) ||
             job.tags?.some((tag) => tag.toLowerCase().includes(term)) ||
+            job.studies?.some((study) => study.toLowerCase().includes(term)) ||
+            job.contactEmail?.toLowerCase().includes(term) ||
+            job.contactPhone?.toLowerCase().includes(term) ||
+            job.contactPerson?.toLowerCase().includes(term) ||
             job.notes?.toLowerCase().includes(term) ||
             job.description?.toLowerCase().includes(term),
         )
@@ -167,6 +177,10 @@ export function JobBoard() {
           job.position.toLowerCase().includes(term) ||
           job.location?.toLowerCase().includes(term) ||
           job.tags?.some((tag) => tag.toLowerCase().includes(term)) ||
+          job.studies?.some((study) => study.toLowerCase().includes(term)) ||
+          job.contactEmail?.toLowerCase().includes(term) ||
+          job.contactPhone?.toLowerCase().includes(term) ||
+          job.contactPerson?.toLowerCase().includes(term) ||
           job.notes?.toLowerCase().includes(term) ||
           job.description?.toLowerCase().includes(term),
       )
@@ -386,7 +400,7 @@ export function JobBoard() {
       "id", "company", "position", "location", "salary", "date", "status",
       "notes", "url", "priority", "tags", "description", "workMode",
       "salaryMin", "salaryMax", "salaryCurrency", "applyDate",
-      "followUpDate", "contactPerson", "contactEmail"
+      "followUpDate", "contactPerson", "contactEmail", "contactPhone", "studies"
     ];
 
     // Convert each job to a row
@@ -410,9 +424,10 @@ export function JobBoard() {
         job.salaryCurrency || '',
         job.applyDate || '',
         job.followUpDate || '',
-        // Remove excitement
         job.contactPerson || '',
         job.contactEmail || '',
+        job.contactPhone || '',
+        job.studies ? job.studies.join(";") : '',
       ];
 
       // Escape values that contain commas or quotes
@@ -458,7 +473,7 @@ export function JobBoard() {
       "id", "company", "position", "location", "salary", "date", "status",
       "notes", "url", "priority", "tags", "description", "workMode",
       "salaryMin", "salaryMax", "salaryCurrency", "applyDate",
-      "followUpDate", "contactPerson", "contactEmail"
+      "followUpDate", "contactPerson", "contactEmail", "contactPhone", "studies"
     ];
 
     // Column headers
@@ -492,6 +507,8 @@ export function JobBoard() {
       excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.followUpDate || '')}</Data></Cell>`;
       excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.contactPerson || '')}</Data></Cell>`;
       excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.contactEmail || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.contactPhone || '')}</Data></Cell>`;
+      excelContent += `<Cell><Data ss:Type="String">${escapeXml(job.studies ? job.studies.join(";") : '')}</Data></Cell>`;
 
       excelContent += '</Row>';
     });
@@ -690,57 +707,99 @@ export function JobBoard() {
 
   // Helper function to parse CSV
   const parseCSV = (csvData: string): JobData[] => {
-    const rows = csvData.split("\n")
-    const headers = rows[0].split(",")
-    const jobs: JobData[] = []
+    const rows = csvData.split(/\r?\n/).filter((row) => row.trim() !== "")
+    if (rows.length === 0) return []
 
-    for (let i = 1; i < rows.length; i++) {
-      if (!rows[i].trim()) continue
-
-      // Parse CSV row, handling quoted fields with commas
+    const parseRow = (row: string): string[] => {
       const values: string[] = []
       let currentValue = ""
       let insideQuotes = false
 
-      for (const char of rows[i]) {
+      for (let i = 0; i < row.length; i++) {
+        const char = row[i]
         if (char === '"') {
-          insideQuotes = !insideQuotes
-        } else if (char === "," && !insideQuotes) {
+          if (insideQuotes && row[i + 1] === '"') {
+            currentValue += '"'
+            i++
+          } else {
+            insideQuotes = !insideQuotes
+          }
+        } else if (char === ',' && !insideQuotes) {
           values.push(currentValue)
           currentValue = ""
         } else {
           currentValue += char
         }
       }
-      values.push(currentValue) // Add the last value
 
-      // Create job object with extended fields
+      values.push(currentValue)
+      return values
+    }
+
+    const headerValues = parseRow(rows[0]).map((header) => header.replace(/^"|"$/g, "").trim().toLowerCase())
+    const headerMap = new Map<string, number>()
+    headerValues.forEach((header, index) => {
+      if (header) {
+        headerMap.set(header, index)
+      }
+    })
+
+    const getRawValue = (values: string[], key: string): string => {
+      const index = headerMap.get(key)
+      if (index === undefined) return ""
+      return values[index]?.replace(/^"|"$/g, "").trim() ?? ""
+    }
+
+    const getNumberValue = (values: string[], key: string): number | undefined => {
+      const raw = getRawValue(values, key)
+      if (!raw) return undefined
+      const parsed = Number(raw)
+      return Number.isNaN(parsed) ? undefined : parsed
+    }
+
+    const getArrayValue = (values: string[], key: string): string[] => {
+      const raw = getRawValue(values, key)
+      if (!raw) return []
+      return raw
+        .split(/[;,]/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    }
+
+    const jobs: JobData[] = []
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i]
+      if (!row.trim()) continue
+
+      const values = parseRow(row)
+
+      const workModeRaw = getRawValue(values, "workmode")
+      const workMode = workModeRaw ? (workModeRaw as WorkMode) : undefined
+
       const job: JobData = {
-        id: values[0] || Date.now().toString(),
-        company: values[1]?.replace(/^"|"$/g, "") || "",
-        position: values[2]?.replace(/^"|"$/g, "") || "",
-        location: values[3]?.replace(/^"|"$/g, "") || undefined,
-        salary: values[4]?.replace(/^"|"$/g, "") || undefined,
-        date: values[5] || undefined,
-        status: (values[6] as ColumnType) || "wishlist",
-        notes: values[7]?.replace(/^"|"$/g, "") || undefined,
-        url: values[8]?.replace(/^"|"$/g, "") || undefined,
-        priority: values[9] ? Number.parseInt(values[9]) : undefined,
-        tags:
-          values[10]
-            ?.replace(/^"|"$/g, "")
-            .split(",")
-            .map((tag) => tag.trim()) || [],
-        description: values[11]?.replace(/^"|"$/g, "") || "",
-        workMode: (values[12] as any) || undefined,
-        salaryMin: values[13] ? Number.parseInt(values[13]) : undefined,
-        salaryMax: values[14] ? Number.parseInt(values[14]) : undefined,
-        salaryCurrency: values[15] || undefined,
-        applyDate: values[16] || undefined,
-        followUpDate: values[17] || undefined,
-        // Priority already set above
-        contactPerson: values[19]?.replace(/^"|"$/g, "") || undefined,
-        contactEmail: values[20]?.replace(/^"|"$/g, "") || undefined,
+        id: getRawValue(values, "id") || Date.now().toString(),
+        company: getRawValue(values, "company") || "",
+        position: getRawValue(values, "position") || "",
+        location: getRawValue(values, "location") || undefined,
+        salary: getRawValue(values, "salary") || undefined,
+        date: getRawValue(values, "date") || undefined,
+        status: (getRawValue(values, "status") as ColumnType) || "wishlist",
+        notes: getRawValue(values, "notes") || undefined,
+        url: getRawValue(values, "url") || undefined,
+        priority: getNumberValue(values, "priority"),
+        tags: getArrayValue(values, "tags"),
+        description: getRawValue(values, "description") || undefined,
+        workMode,
+        salaryMin: getNumberValue(values, "salarymin"),
+        salaryMax: getNumberValue(values, "salarymax"),
+        salaryCurrency: getRawValue(values, "salarycurrency") || undefined,
+        applyDate: getRawValue(values, "applydate") || undefined,
+        followUpDate: getRawValue(values, "followupdate") || undefined,
+        contactPerson: getRawValue(values, "contactperson") || undefined,
+        contactEmail: getRawValue(values, "contactemail") || undefined,
+        contactPhone: getRawValue(values, "contactphone") || undefined,
+        studies: getArrayValue(values, "studies"),
       }
 
       jobs.push(job)

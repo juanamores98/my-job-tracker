@@ -7,6 +7,7 @@ import { defaultJobStates } from "@/lib/data"
 import type { JobState, JobData } from "@/lib/types"
 import { useToast } from "@/hooks/use-toast"
 import { useLanguage } from "@/lib/i18n"
+import { useAuth } from "@/lib/contexts/auth-context"
 
 interface StatusManagerContextType {
   openStatusManager: () => void
@@ -27,12 +28,13 @@ export function StatusManagerProvider({ children }: { children: ReactNode }) {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const { toast } = useToast()
   const { t } = useLanguage()
+  const { user } = useAuth()
 
   // Load job states when provider mounts
   React.useEffect(() => {
     const states = getJobStates()
     setJobStates(states.sort((a, b) => a.order - b.order))
-  }, [])
+  }, [user])
 
   const handleAddStatus = useCallback((newState: JobState) => {
     const stateToAdd: JobState = {
